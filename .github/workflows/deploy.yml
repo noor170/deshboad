@@ -1,107 +1,69 @@
-name: CI / Deploy Pipeline
+name: CI and Remote Deploy
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
-  backend-checks:
-    name: Backend — Install & Verify
+  build-and-test:
+    name: Build and Test
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
       - name: Install backend dependencies
         working-directory: backend
-        run: pip install -r requirements.txt
-
-      - name: Verify FastAPI app imports cleanly
-        working-directory: backend/app
         run: |
-          python -c "
-          import sys, os
-          sys.path.insert(0, '.')
-          from database import Base, Order, init_db
-          from analytics import compute_dashboard_metrics, _fallback_metrics
-          metrics = _fallback_metrics()
-          assert metrics['gross_revenue'] > 0
-          assert 'monthly_labels' in metrics
-          print('✅ Backend module check passed')
-          "
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Mock code quality check
+      - name: Run backend syntax checks
         run: |
-          echo "Running mock lint check on backend..."
-          python -m py_compile backend/app/main.py
-          python -m py_compile backend/app/database.py
-          python -m py_compile backend/app/analytics.py
-          echo "✅ All backend files compile without syntax errors"
+          python -m compileall backend/app
 
-  frontend-checks:
-    name: Frontend — Install & Build
-    runs-on: ubuntu-latest
+      - name: Verify backend imports
+        run: |
+          python -c "from backend.app.main import app; from backend.app.analytics import compute_dashboard_metrics; print(app.title)"
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js 20
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: frontend/package.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
-      - name: Build frontend
+      - name: Build frontend assets
         working-directory: frontend
-        run: npm run build
         env:
           VITE_API_URL: ""
+        run: npm run build
 
-      - name: Mock code verification
-        run: |
-          echo "Running mock frontend verification..."
-          test -d frontend/dist && echo "✅ Build output exists" || exit 1
-          test -f frontend/dist/index.html && echo "✅ index.html found" || exit 1
-          echo "✅ Frontend build verification passed"
-
-  deployment-summary:
-    name: Deployment Summary
+  auto-deploy:
+    name: Auto Deploy
     runs-on: ubuntu-latest
-    needs: [backend-checks, frontend-checks]
+    needs: build-and-test
 
     steps:
-      - name: Print deployment summary
-        run: |
-          echo "================================================"
-          echo "  E-commerce Dashboard — Deployment Summary"
-          echo "================================================"
-          echo "  Branch  : ${{ github.ref_name }}"
-          echo "  Commit  : ${{ github.sha }}"
-          echo "  Actor   : ${{ github.actor }}"
-          echo "  Status  : All checks passed ✅"
-          echo "------------------------------------------------"
-          echo "  Backend  → FastAPI on port 8000"
-          echo "  Frontend → React/Vite on port 5173"
-          echo "================================================"
+      - name: Deploy application over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            cd "$HOME/LuminousLikelyVerification"
+            chmod +x ./deploy.sh
+            ./deploy.sh

@@ -1,19 +1,25 @@
-import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
+import sys
+from datetime import date
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from database import get_db, init_db
-from analytics import compute_dashboard_metrics, generate_sales_distribution_chart
+sys.path.insert(0, os.path.dirname(__file__))
+
+try:
+    from .analytics import compute_dashboard_metrics, export_operations_report
+    from .database import get_db, init_db
+except ImportError:
+    from analytics import compute_dashboard_metrics, export_operations_report
+    from database import get_db, init_db
 
 app = FastAPI(
-    title="E-commerce Operations API",
-    description="Business analytics and operations dashboard backend",
-    version="1.0.0",
+    title="Retail Operations Dashboard API",
+    description="Operational analytics for inventory, marketing efficiency, and retail profitability",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -32,7 +38,7 @@ def on_startup():
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "E-commerce Analytics API is running"}
+    return {"status": "ok", "message": "Retail operations analytics API is running"}
 
 
 @app.get("/health")
@@ -41,52 +47,39 @@ def health():
 
 
 @app.get("/api/v1/operations/dashboard")
-def get_dashboard(db: Session = Depends(get_db)):
+def get_dashboard(
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
     try:
-        metrics = compute_dashboard_metrics(db)
-        return {
-            "success": True,
-            "data": metrics,
-        }
+        metrics = compute_dashboard_metrics(db, start_date=start_date, end_date=end_date)
+        return {"success": True, "data": metrics}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@app.get("/api/v1/operations/chart")
-def get_chart(db: Session = Depends(get_db)):
+@app.get("/api/v1/operations/export")
+def export_dashboard(
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+    file_format: str = Query(default="csv", pattern="^(csv|xlsx)$"),
+    db: Session = Depends(get_db),
+):
     try:
-        path = generate_sales_distribution_chart(db)
-        return FileResponse(path, media_type="image/png", filename="sales_distribution.png")
+        file_path, filename, media_type = export_operations_report(
+            db,
+            start_date=start_date,
+            end_date=end_date,
+            file_format=file_format,
+        )
+        return FileResponse(file_path, media_type=media_type, filename=filename)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.get("/api/v1/operations/orders")
-def get_orders(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
-    from database import Order
-    try:
-        orders = db.query(Order).offset(skip).limit(limit).all()
-        return {
-            "success": True,
-            "data": [
-                {
-                    "id": o.id,
-                    "order_date": o.order_date.isoformat() if o.order_date else None,
-                    "revenue": o.revenue,
-                    "product_category": o.product_category,
-                    "customer_region": o.customer_region,
-                    "units_sold": o.units_sold,
-                    "month_label": o.month_label,
-                }
-                for o in orders
-            ],
-            "total": db.query(Order).count(),
-        }
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.getenv("BACKEND_PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
