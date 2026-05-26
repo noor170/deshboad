@@ -98,15 +98,25 @@ jobs:
       - backend-ci
       - frontend-ci
       - docker-ci
-    if: >-
-      github.event_name != 'pull_request' &&
-      github.ref == 'refs/heads/main' &&
-      secrets.HOST != '' &&
-      secrets.USER != '' &&
-      secrets.SSH_PRIVATE_KEY != ''
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
 
     steps:
+      - name: Check deploy secrets
+        id: deploy_secrets
+        env:
+          HOST: ${{ secrets.HOST }}
+          USER: ${{ secrets.USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          if [ -n "$HOST" ] && [ -n "$USER" ] && [ -n "$SSH_PRIVATE_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Deploy secrets are not configured. Skipping deploy."
+          fi
+
       - name: Deploy application over SSH
+        if: steps.deploy_secrets.outputs.configured == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HOST }}
