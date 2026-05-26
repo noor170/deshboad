@@ -91,8 +91,17 @@ If any of these are absent, the app automatically uses a local `ecommerce.db` SQ
 
 ## CI/CD Pipeline
 
-`.github/workflows/deploy.yml` triggers on pushes to `main`:
+`.github/workflows/ci-cd.yml` provides:
 
-1. **Backend job** — installs Python deps, verifies module imports, compiles all `.py` files
-2. **Frontend job** — installs Node deps, runs `vite build`, verifies dist output
-3. **Summary job** — prints branch, commit, actor, and service port map
+1. **Backend CI** — installs Python dependencies, compiles the FastAPI app, and runs a backend import smoke test
+2. **Frontend CI** — installs Node dependencies, runs ESLint, and builds the Vite app
+3. **Docker CI** — validates `docker-compose.yml` and builds the backend and frontend images
+4. **Deploy** — runs only for pushes to `main` or manual dispatch after all CI jobs pass
+
+### Required GitHub Secrets
+
+For the deploy job to work, configure these repository secrets:
+
+- `HOST`
+- `USER`
+- `SSH_PRIVATE_KEY`
