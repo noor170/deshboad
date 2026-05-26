@@ -98,19 +98,14 @@ jobs:
       - backend-ci
       - frontend-ci
       - docker-ci
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      secrets.HOST != '' &&
+      secrets.USER != '' &&
+      secrets.SSH_PRIVATE_KEY != ''
 
     steps:
-      - name: Validate deploy secrets
-        env:
-          HOST: ${{ secrets.HOST }}
-          USER: ${{ secrets.USER }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          test -n "$HOST"
-          test -n "$USER"
-          test -n "$SSH_PRIVATE_KEY"
-
       - name: Deploy application over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
