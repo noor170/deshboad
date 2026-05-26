@@ -57,6 +57,16 @@ To connect to an **AWS RDS MySQL** instance instead of the local SQLite fallback
 
 If any of these are absent, the app automatically uses a local `ecommerce.db` SQLite file and seeds it with 240 demo orders.
 
+For managed MySQL providers such as Aiven, you can also set:
+
+| Variable | Description |
+|---|---|
+| `DB_CONNECT_TIMEOUT` | Connection timeout in seconds |
+| `DB_READ_TIMEOUT` | Read timeout in seconds |
+| `DB_WRITE_TIMEOUT` | Write timeout in seconds |
+| `DB_SSL_MODE` | Set to `require` to enable TLS |
+| `DB_SSL_CA` | Optional CA certificate path when your platform provides one |
+
 ---
 
 ## API Endpoints

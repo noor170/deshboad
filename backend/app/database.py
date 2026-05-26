@@ -1,6 +1,7 @@
 import os
 import random
 from datetime import date, datetime, timedelta
+from urllib.parse import quote_plus
 
 from sqlalchemy import Boolean, Column, Date, Float, Integer, String, create_engine, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -12,18 +13,48 @@ DB_NAME = os.getenv("DB_NAME")
 DB_PORT = os.getenv("DB_PORT", "3306")
 DB_DIALECT = os.getenv("DB_DIALECT", "sqlite").lower()
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "./ecommerce.db")
+DB_CONNECT_TIMEOUT = int(os.getenv("DB_CONNECT_TIMEOUT", "10"))
+DB_READ_TIMEOUT = int(os.getenv("DB_READ_TIMEOUT", "10"))
+DB_WRITE_TIMEOUT = int(os.getenv("DB_WRITE_TIMEOUT", "10"))
+DB_SSL_MODE = os.getenv("DB_SSL_MODE", "").lower()
+DB_SSL_CA = os.getenv("DB_SSL_CA")
 
 if DB_DIALECT == "mysql" or all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
     DATABASE_URL = os.getenv(
         "DATABASE_URL",
-        f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}",
+        "mysql+pymysql://"
+        f"{quote_plus(DB_USER or '')}:{quote_plus(DB_PASSWORD or '')}"
+        f"@{DB_HOST}:{DB_PORT}/{DB_NAME}",
     )
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{SQLITE_DB_PATH}")
 
+
+def _build_connect_args():
+    if DATABASE_URL.startswith("sqlite"):
+        return {"check_same_thread": False}
+
+    connect_args = {
+        "charset": "utf8mb4",
+        "connect_timeout": DB_CONNECT_TIMEOUT,
+        "read_timeout": DB_READ_TIMEOUT,
+        "write_timeout": DB_WRITE_TIMEOUT,
+    }
+
+    if DB_SSL_MODE in {"1", "true", "enabled", "require", "required"} or DB_SSL_CA:
+        ssl_config = {}
+        if DB_SSL_CA:
+            ssl_config["ca"] = DB_SSL_CA
+        connect_args["ssl"] = ssl_config
+
+    return connect_args
+
+
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    connect_args=_build_connect_args(),
+    pool_pre_ping=not DATABASE_URL.startswith("sqlite"),
+    pool_recycle=3600 if not DATABASE_URL.startswith("sqlite") else -1,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
