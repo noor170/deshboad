@@ -119,6 +119,8 @@ For managed MySQL providers such as Aiven, you can also set:
 | `DB_WRITE_TIMEOUT` | Write timeout in seconds |
 | `DB_SSL_MODE` | Set to `require` to enable TLS |
 | `DB_SSL_CA` | Optional CA certificate path when your platform provides one |
+| `SLACK_WEBHOOK_URL` | Incoming webhook URL for low-stock Slack alerts |
+| `SLACK_ALERT_TOKEN` | Shared secret required by the Slack alert trigger endpoint |
 
 ---
 
@@ -162,6 +164,7 @@ For managed MySQL providers such as Aiven, you can also set:
 2. **Frontend CI** — installs Node dependencies, runs ESLint, and builds the Vite app
 3. **Docker CI** — validates `docker-compose.yml` and builds the backend and frontend images
 4. **Deploy** — runs only for pushes to `main` or manual dispatch after all CI jobs pass and the deploy secrets are configured
+5. **Slack Low-Stock Alerts** — scheduled GitHub Action calls the protected Slack alert endpoint once per day or on manual dispatch
 
 ### Required GitHub Secrets
 
@@ -170,3 +173,15 @@ If these repository secrets are not configured, the deploy job is skipped:
 - `HOST`
 - `USER`
 - `SSH_PRIVATE_KEY`
+
+### Required GitHub Secrets For Scheduled Slack Alerts
+
+The scheduled workflow in [slack-low-stock-alerts.yml](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/.github/workflows/slack-low-stock-alerts.yml) requires:
+
+- `ALERT_ENDPOINT_URL`
+- `SLACK_ALERT_TOKEN`
+
+Example `ALERT_ENDPOINT_URL` values:
+
+- `https://your-backend.example.com/api/v1/alerts/slack/low-stock`
+- `https://your-project.vercel.app/_/backend/api/v1/alerts/slack/low-stock`

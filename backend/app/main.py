@@ -2,7 +2,7 @@ import os
 import sys
 from datetime import date
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -12,9 +12,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 try:
     from .analytics import compute_dashboard_metrics, export_operations_report
     from .database import get_db, init_db
+    from .services.alerts import queue_low_stock_alerts
 except ImportError:
     from analytics import compute_dashboard_metrics, export_operations_report
     from database import get_db, init_db
+    from services.alerts import queue_low_stock_alerts
 
 app = FastAPI(
     title="Retail Operations Dashboard API",
@@ -29,6 +31,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+SLACK_ALERT_TOKEN = os.getenv("SLACK_ALERT_TOKEN")
+
+
+def require_slack_alert_token(x_alert_token: str | None = Header(default=None)):
+    if not SLACK_ALERT_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Slack alert endpoint is not configured.",
+        )
+
+    if x_alert_token != SLACK_ALERT_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid alert token.",
+        )
 
 
 @app.on_event("startup")
@@ -55,6 +73,19 @@ def get_dashboard(
     try:
         metrics = compute_dashboard_metrics(db, start_date=start_date, end_date=end_date)
         return {"success": True, "data": metrics}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/alerts/slack/low-stock")
+def trigger_low_stock_slack_alerts(
+    background_tasks: BackgroundTasks,
+    _authorized: None = Depends(require_slack_alert_token),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = queue_low_stock_alerts(background_tasks, db)
+        return {"success": True, "data": result}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
