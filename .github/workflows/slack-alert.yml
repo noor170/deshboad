@@ -1,0 +1,25 @@
+name: Daily Low Stock Slack Alert
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: slack-low-stock-alerts
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-vercel-alert:
+    name: Trigger Low-Stock Slack Alert
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Knock on Vercel API Door
+        run: |
+          curl -X POST "${{ secrets.ALERT_ENDPOINT_URL }}" \
+            -H "X-Alert-Token: ${{ secrets.SLACK_ALERT_TOKEN }}" \
+            -H "Content-Type: application/json"

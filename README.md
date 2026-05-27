@@ -176,7 +176,7 @@ If these repository secrets are not configured, the deploy job is skipped:
 
 ### Required GitHub Secrets For Scheduled Slack Alerts
 
-The scheduled workflow in [slack-low-stock-alerts.yml](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/.github/workflows/slack-low-stock-alerts.yml) requires:
+The scheduled workflow in [slack-alert.yml](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/.github/workflows/slack-alert.yml) requires:
 
 - `ALERT_ENDPOINT_URL`
 - `SLACK_ALERT_TOKEN`
