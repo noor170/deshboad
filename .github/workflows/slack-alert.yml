@@ -25,11 +25,15 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"text": "Low stock alert!"}'
 
-      - name: Test Network Connectivity
+#      - name: Test Network Connectivity
+      - name: Test Web Handshake and DNS
         run: |
-          ping -c 3 google.com
-          curl -I https://deshboad-gules.vercel.app/
-          
-          
-          # Replace with actual domain to test handshake
+          echo "=== 1. Testing DNS Resolution ==="
+          nslookup deshboad-gules.vercel.app || echo "DNS Lookup Failed"
+
+          echo "=== 2. Testing HTTPS Connection to Vercel (5s timeout) ==="
+          curl -v -I --connect-timeout 5 https://deshboad-gules.vercel.app/ || echo "Vercel Connection Failed"
+
+          echo "=== 3. Testing HTTPS Connection to Slack ==="
+          curl -v -I --connect-timeout 5 https://hooks.slack.com || echo "Slack Connection Failed"
 
