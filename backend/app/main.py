@@ -1,18 +1,23 @@
 import os
 import sys
+import io
 from datetime import date
 
+import pandas as pd
 from fastapi import (
     BackgroundTasks,
     Depends,
+    File,
     FastAPI,
     Header,
     HTTPException,
     Query,
+    UploadFile,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -26,7 +31,7 @@ try:
         predict_incoming_return_load,
         predict_upcoming_sales,
     )
-    from .database import get_db, init_db
+    from .database import Inventory, get_db, init_db
     from .services.alerts import queue_low_stock_alerts
 except ImportError:
     from analytics import (
@@ -37,7 +42,7 @@ except ImportError:
         predict_incoming_return_load,
         predict_upcoming_sales,
     )
-    from database import get_db, init_db
+    from database import Inventory, get_db, init_db
     from services.alerts import queue_low_stock_alerts
 
 app = FastAPI(
@@ -137,6 +142,137 @@ def trigger_low_stock_slack_alerts(
         return {"success": True, "data": result}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/operations/import-inventory", status_code=status.HTTP_201_CREATED)
+async def import_inventory_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file format. Please upload a valid .csv file.",
+        )
+
+    required_columns = {
+        "product_name",
+        "category",
+        "stock_level",
+        "cost_price",
+        "shipping_cost_buffer",
+    }
+
+    try:
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Uploaded CSV file is empty.",
+            )
+
+        df = pd.read_csv(io.BytesIO(contents))
+        normalized_columns = {column: str(column).strip() for column in df.columns}
+        df = df.rename(columns=normalized_columns)
+
+        missing_columns = required_columns - set(df.columns)
+        if missing_columns:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Missing required CSV columns: "
+                    + ", ".join(sorted(missing_columns))
+                ),
+            )
+
+        for column in required_columns:
+            if df[column].isna().any():
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Column '{column}' contains empty values.",
+                )
+
+        if "product_id" in df.columns:
+            if df["product_id"].isna().any():
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Column 'product_id' contains empty values.",
+                )
+            if df["product_id"].duplicated().any():
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Column 'product_id' contains duplicate values.",
+                )
+            df["product_id"] = pd.to_numeric(df["product_id"], errors="raise").astype(int)
+            next_product_ids = df["product_id"].tolist()
+        else:
+            current_max_product_id = db.query(func.max(Inventory.product_id)).scalar() or 0
+            next_product_ids = list(
+                range(current_max_product_id + 1, current_max_product_id + 1 + len(df))
+            )
+
+        df["stock_level"] = pd.to_numeric(df["stock_level"], errors="raise").astype(int)
+        df["cost_price"] = pd.to_numeric(df["cost_price"], errors="raise").astype(float)
+        df["shipping_cost_buffer"] = pd.to_numeric(
+            df["shipping_cost_buffer"], errors="raise"
+        ).astype(float)
+
+        duplicate_ids_in_db = set()
+        if next_product_ids:
+            duplicate_ids_in_db = {
+                row[0]
+                for row in db.query(Inventory.product_id)
+                .filter(Inventory.product_id.in_(next_product_ids))
+                .all()
+            }
+        if duplicate_ids_in_db:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "product_id values already exist: "
+                    + ", ".join(map(str, sorted(duplicate_ids_in_db)))
+                ),
+            )
+
+        new_records = []
+        for idx, (_, row) in enumerate(df.iterrows()):
+            new_records.append(
+                Inventory(
+                    product_id=int(next_product_ids[idx]),
+                    product_name=str(row["product_name"]).strip(),
+                    category=str(row["category"]).strip(),
+                    stock_level=int(row["stock_level"]),
+                    cost_price=float(row["cost_price"]),
+                    shipping_cost_buffer=float(row["shipping_cost_buffer"]),
+                )
+            )
+
+        if new_records:
+            db.bulk_save_objects(new_records)
+            db.commit()
+
+        return {
+            "status": "success",
+            "message": f"Successfully imported {len(new_records)} items into inventory.",
+            "file_processed": file.filename,
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except (ValueError, TypeError, pd.errors.ParserError) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid CSV content: {exc}",
+        ) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while processing the batch upload: {exc}",
+        ) from exc
+    finally:
+        await file.close()
 
 
 @app.get("/api/v1/forecast/inventory")

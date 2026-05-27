@@ -597,6 +597,10 @@ For managed MySQL providers such as Aiven, you can also set:
 | `GET` | `/health` | Health check |
 | `GET` | `/api/v1/operations/dashboard` | Full metrics payload |
 | `GET` | `/api/v1/operations/export` | Export operations report as `csv` or `xlsx` |
+| `GET` | `/api/v1/forecast/inventory` | Inventory depletion forecast (linear regression + fallback strategy) |
+| `GET` | `/api/v1/forecast/sales` | Sales volume forecast for upcoming daily windows |
+| `GET` | `/api/v1/forecast/returns` | Return load forecast and refund liability estimate |
+| `GET` | `/api/v1/forecast/safety-stock` | Supplier lead-time drift and safety-stock adjustments |
 
 ---
 
@@ -612,12 +616,27 @@ For managed MySQL providers such as Aiven, you can also set:
 
 ## Frontend Dashboard
 
-- **Top KPI cards** — Revenue, profit, warning, and acquisition-efficiency indicators.
-- **Trend visualization** — Interactive line chart powered by `react-chartjs-2`.
-- **Return-rate analysis** — Horizontal category comparison for return performance.
-- **Operational tables** — Low-stock product visibility with velocity and days-left context.
-- **Export workflow** — Direct CSV export from the dashboard UI.
-- **API-aware error handling** — Better messaging when the frontend receives HTML or invalid API responses.
+- **Multi-page experience with top navigation** — Three primary views:
+  - `Home` (Retail Ops unified workspace)
+  - `Operations Dashboard` (core operational intelligence)
+  - `AI Forecasting` (all forecasting modules in one dedicated page)
+- **Home workspace (Retail Ops)** — A unified operator page that includes:
+  - workspace summary and live signals
+  - operating snapshot with alert feed and quick `Draft PO` actions
+  - date window controls (read-only and derived from dashboard payload)
+  - what-if simulation controls for ad spend, COGS shift, and unit price change
+  - inventory coverage table and commerce coverage summary cards
+- **Operations dashboard** — Forecast header, financial cards, inventory risk metrics, depletion banner, and low-stock pagination.
+- **AI forecasting page with section navbar** — In-page navigation to:
+  - Sales Forecast
+  - Reverse Logistics Forecast
+  - Supplier Drift Buffers
+  - Sales Volume Forecast
+  - Return Load Forecast
+  - Lead-Time Drift Analysis
+- **Charts and analysis modules** — Interactive trend chart (`react-chartjs-2`), return-rate analysis, supplier safety buffer cards, and model-specific forecast panels.
+- **Theme and global controls** — Currency selector, timezone selector, and dark/light mode toggle.
+- **Resilient data handling** — API fallback payloads, loading skeletons, and error banners for degraded network/backend responses.
 
 ---
 
