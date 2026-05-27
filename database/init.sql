@@ -1,6 +1,10 @@
 CREATE DATABASE IF NOT EXISTS defaultdb;
 USE defaultdb;
 
+CREATE USER IF NOT EXISTS 'ecommerce_user'@'%' IDENTIFIED BY 'ecommerce_pass123';
+GRANT ALL PRIVILEGES ON defaultdb.* TO 'ecommerce_user'@'%';
+FLUSH PRIVILEGES;
+
 CREATE TABLE IF NOT EXISTS orders (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     product_id INT NOT NULL,
