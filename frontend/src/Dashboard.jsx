@@ -243,9 +243,15 @@ function OperatingSnapshotPanel({
           <h3>Operating Snapshot</h3>
           <p>Bridge demand, margin, and replenishment risk in one operating panel.</p>
         </div>
-        <span className={`net-state-badge ${netProfitMode ? "active" : ""}`}>
-          {netProfitMode ? "Net View Active" : "Gross View Active"}
-        </span>
+        <div className="operating-header-actions">
+          <button className="export-button snapshot-export header-export" type="button" onClick={exportReport} disabled={exporting}>
+            <Download size={16} />
+            <span>{exporting ? "Exporting..." : "Export Report"}</span>
+          </button>
+          <span className={`net-state-badge ${netProfitMode ? "active" : ""}`}>
+            {netProfitMode ? "Net View Active" : "Gross View Active"}
+          </span>
+        </div>
       </div>
 
       <div className="snapshot-controls">
@@ -286,10 +292,6 @@ function OperatingSnapshotPanel({
             <span className={`mode-switch ${netProfitMode ? "on" : ""}`}>
               <span />
             </span>
-          </button>
-          <button className="export-button snapshot-export" type="button" onClick={exportReport} disabled={exporting}>
-            <Download size={16} />
-            <span>{exporting ? "Exporting..." : "Export Report"}</span>
           </button>
         </div>
       </div>
