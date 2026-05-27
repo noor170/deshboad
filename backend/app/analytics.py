@@ -10,6 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 try:
+    from sklearn.linear_model import LinearRegression
+except ImportError:  # pragma: no cover - runtime dependency guard
+    LinearRegression = None
+
+try:
     from .database import Inventory, MarketingSpend, Order
 except ImportError:
     from database import Inventory, MarketingSpend, Order
@@ -464,3 +469,172 @@ def _empty_payload(start_date: date | None, end_date: date | None) -> dict:
         "time_series": {"labels": [], "gross_sales": [], "net_profit": []},
         "totals": {"orders": 0, "units_sold": 0, "returned_orders": 0},
     }
+
+
+def forecast_inventory_depletion(sales_rows: list[dict], current_stock: int | float) -> dict:
+    """
+    Build a forecasting payload for a single SKU.
+
+    Expected sales_rows shape:
+    [
+        {"sales_date": "2026-05-01", "quantity": 14},
+        {"sales_date": "2026-05-02", "quantity": 12},
+        ...
+    ]
+
+    Accepted aliases:
+    - date field: sales_date, order_date, date
+    - quantity field: quantity, units_sold, qty
+    """
+    if LinearRegression is None:
+        raise RuntimeError("scikit-learn is required for forecast_inventory_depletion().")
+
+    current_stock = max(float(current_stock or 0), 0.0)
+    history_df = _prepare_forecast_history_frame(sales_rows)
+
+    if current_stock == 0:
+        return {
+            "current_stock": 0,
+            "daily_burn_velocity": 0.0,
+            "daily_sales_velocity_slope": 0.0,
+            "historical_average_velocity": 0.0,
+            "predicted_days_left": 0.0,
+            "forecast_strategy": "no_stock_remaining",
+            "alert_level": "critical",
+        }
+
+    if history_df.empty:
+        return {
+            "current_stock": round(current_stock, 2),
+            "daily_burn_velocity": 0.0,
+            "daily_sales_velocity_slope": 0.0,
+            "historical_average_velocity": 0.0,
+            "predicted_days_left": 0.0,
+            "forecast_strategy": "no_history_available",
+            "alert_level": "critical",
+        }
+
+    velocity_series = history_df["daily_quantity"].astype(float)
+    historical_average_velocity = _compute_fallback_velocity(velocity_series)
+    slope = 0.0
+    projected_velocity = historical_average_velocity
+    strategy = "fallback_average"
+
+    if len(history_df.index) >= 2:
+        x_axis = np.arange(len(history_df.index), dtype=float).reshape(-1, 1)
+        regression = LinearRegression()
+        regression.fit(x_axis, velocity_series.to_numpy(dtype=float))
+
+        slope = float(regression.coef_[0])
+        projected_velocity = max(
+            float(regression.predict(np.array([[len(history_df.index) - 1]], dtype=float))[0]),
+            0.0,
+        )
+
+        if slope > 0 and projected_velocity > 0:
+            strategy = "linear_regression"
+        else:
+            slope = 0.0
+            projected_velocity = historical_average_velocity
+
+    daily_burn_velocity = max(projected_velocity, historical_average_velocity, 0.01)
+    predicted_days_left = _simulate_days_to_depletion(
+        current_stock=current_stock,
+        starting_velocity=daily_burn_velocity,
+        velocity_slope=slope,
+        fallback_velocity=historical_average_velocity,
+    )
+
+    if predicted_days_left <= 7:
+        alert_level = "critical"
+    elif predicted_days_left <= 21:
+        alert_level = "watch"
+    else:
+        alert_level = "healthy"
+
+    return {
+        "current_stock": round(current_stock, 2),
+        "daily_burn_velocity": round(daily_burn_velocity, 2),
+        "daily_sales_velocity_slope": round(slope, 4),
+        "historical_average_velocity": round(historical_average_velocity, 2),
+        "predicted_days_left": round(predicted_days_left, 2),
+        "forecast_strategy": strategy,
+        "alert_level": alert_level,
+    }
+
+
+def _prepare_forecast_history_frame(sales_rows: list[dict]) -> pd.DataFrame:
+    if not sales_rows:
+        return pd.DataFrame(columns=["sales_date", "daily_quantity"])
+
+    frame = pd.DataFrame(sales_rows)
+    date_column = next(
+        (column for column in ("sales_date", "order_date", "date") if column in frame.columns),
+        None,
+    )
+    quantity_column = next(
+        (column for column in ("quantity", "units_sold", "qty") if column in frame.columns),
+        None,
+    )
+
+    if not date_column or not quantity_column:
+        return pd.DataFrame(columns=["sales_date", "daily_quantity"])
+
+    history_df = frame[[date_column, quantity_column]].copy()
+    history_df.columns = ["sales_date", "daily_quantity"]
+    history_df["sales_date"] = pd.to_datetime(history_df["sales_date"], errors="coerce")
+    history_df["daily_quantity"] = pd.to_numeric(history_df["daily_quantity"], errors="coerce").fillna(0.0)
+    history_df.dropna(subset=["sales_date"], inplace=True)
+
+    if history_df.empty:
+        return pd.DataFrame(columns=["sales_date", "daily_quantity"])
+
+    history_df["sales_date"] = history_df["sales_date"].dt.normalize()
+    history_df = (
+        history_df.groupby("sales_date", as_index=False)["daily_quantity"]
+        .sum()
+        .sort_values("sales_date")
+    )
+
+    full_range = pd.date_range(
+        start=history_df["sales_date"].min(),
+        end=history_df["sales_date"].max(),
+        freq="D",
+    )
+    history_df = (
+        history_df.set_index("sales_date")
+        .reindex(full_range, fill_value=0.0)
+        .rename_axis("sales_date")
+        .reset_index()
+    )
+    return history_df
+
+
+def _compute_fallback_velocity(velocity_series: pd.Series) -> float:
+    rolling_window_average = float(velocity_series.tail(7).mean()) if not velocity_series.empty else 0.0
+    full_window_average = float(velocity_series.mean()) if not velocity_series.empty else 0.0
+    fallback_velocity = max(rolling_window_average, full_window_average, 0.01)
+    return fallback_velocity
+
+
+def _simulate_days_to_depletion(
+    current_stock: float,
+    starting_velocity: float,
+    velocity_slope: float,
+    fallback_velocity: float,
+    max_projection_days: int = 365,
+) -> float:
+    remaining_stock = max(current_stock, 0.0)
+    projected_velocity = max(starting_velocity, fallback_velocity, 0.01)
+    total_days = 0.0
+
+    for _ in range(max_projection_days):
+        if remaining_stock <= projected_velocity:
+            total_days += remaining_stock / projected_velocity
+            return total_days
+
+        remaining_stock -= projected_velocity
+        total_days += 1
+        projected_velocity = max(projected_velocity + velocity_slope, 0.01)
+
+    return total_days

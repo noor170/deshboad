@@ -4,6 +4,30 @@ A full-stack analytics platform for monitoring e-commerce operations, built with
 
 ---
 
+## Project Updates
+
+Recent updates added predictive inventory forecasting and stronger operational tooling:
+
+- **Linear regression forecasting**
+  - Added a `scikit-learn` `LinearRegression` workflow in [backend/app/analytics.py](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/backend/app/analytics.py).
+  - Forecasting now computes the daily sales velocity slope from historical dated sales rows and predicts how many days remain before stock reaches zero.
+  - Handles flat or negative demand slopes by falling back to rolling and historical average daily velocity.
+
+- **Forecast-ready frontend card**
+  - Reworked [frontend/src/Dashboard.jsx](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/frontend/src/Dashboard.jsx) into a premium dark-theme predictive forecasting card.
+  - Displays current stock, daily burn velocity, slope trend, and exact depletion-day prediction.
+  - Uses a mock API endpoint shape with local fallback behavior for frontend development.
+
+- **Slack low-stock alert entrypoint**
+  - Added a protected FastAPI alert trigger endpoint for low-stock Slack notifications.
+  - Added a GitHub Actions scheduled workflow to invoke the alert endpoint automatically.
+
+- **Containerized deployment fixes**
+  - Aligned the frontend container proxy path with the backend route structure.
+  - Fixed local MySQL bootstrap and grant behavior in Docker Compose-based deployment.
+
+---
+
 ## Detailed Features
 
 - **Operations KPI dashboard**
@@ -21,6 +45,11 @@ A full-stack analytics platform for monitoring e-commerce operations, built with
 - **Inventory risk detection**
   - Calculates sales velocity and estimated days of inventory left.
   - Flags products with critical reorder risk and surfaces them in a low-stock table.
+
+- **Predictive inventory depletion forecasting**
+  - Uses `pandas` and `scikit-learn` linear regression to estimate burn-rate acceleration over time.
+  - Predicts exact depletion timing from dated historical sales rows and current stock levels.
+  - Falls back to average-velocity forecasting when trend data is flat, declining, or incomplete.
 
 - **Category return-rate analysis**
   - Breaks down return performance by product category.
@@ -43,6 +72,10 @@ A full-stack analytics platform for monitoring e-commerce operations, built with
   - Uses a production-safe backend route fallback for Vercel service routing.
   - Detects non-JSON API responses and shows clearer runtime errors instead of crashing on HTML payloads.
 
+- **Protected Slack alert automation**
+  - Supports a dedicated low-stock Slack alert trigger endpoint protected by a shared secret token.
+  - Includes scheduled GitHub Actions automation for recurring low-stock checks.
+
 - **Containerized local stack**
   - Includes Dockerfiles for backend and frontend plus Compose-based local orchestration.
   - Supports a local MySQL service seeded from `database/init.sql`.
@@ -63,7 +96,7 @@ workspace/
 │   ├── app/
 │   │   ├── main.py          # FastAPI app — routes & CORS
 │   │   ├── database.py      # SQLAlchemy models + SQLite/MySQL config
-│   │   └── analytics.py     # Pandas/NumPy analytics + Matplotlib charts
+│   │   └── analytics.py     # Pandas/NumPy analytics + LinearRegression forecasting
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
@@ -332,6 +365,26 @@ sequenceDiagram
     Alert->>Slack: Send Block Kit webhook payload
     API-->>GA: JSON summary (queued / skipped / candidates)
 ```
+
+### Forecasting Design Diagram
+
+```mermaid
+flowchart TD
+    A[Historical Sales Rows<br/>sales_date + quantity] --> B[backend/app/analytics.py]
+    B --> C[Normalize and aggregate daily sales with pandas]
+    C --> D[Build continuous day index]
+    D --> E[LinearRegression fit<br/>x = day index, y = daily quantity]
+    E --> F{Slope > 0?}
+    F -- Yes --> G[Use regression output as projected burn velocity]
+    F -- No --> H[Fallback to rolling / historical average velocity]
+    G --> I[Simulate stock depletion day by day]
+    H --> I
+    J[Current Stock] --> I
+    I --> K[Predicted Days Left]
+    K --> L[Frontend Forecast Card<br/>frontend/src/Dashboard.jsx]
+```
+
+This forecasting design uses `scikit-learn` linear regression to estimate whether demand is accelerating over time. If the slope is flat or negative, the model falls back to average observed daily burn to avoid unstable depletion estimates.
 
 ---
 
