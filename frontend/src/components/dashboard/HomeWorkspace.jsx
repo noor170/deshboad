@@ -19,9 +19,18 @@ export default function HomeWorkspace({ dashboardSlice, forecast }) {
   const [cogsShift, setCogsShift] = useState(0);
   const [priceShift, setPriceShift] = useState(0);
 
-  const lowStockProducts = dashboardSlice?.low_stock_products || [];
-  const inventoryRows = dashboardSlice?.inventory_overview || lowStockProducts;
-  const categories = dashboardSlice?.category_return_rates || [];
+  const lowStockProducts = useMemo(
+    () => dashboardSlice?.low_stock_products || [],
+    [dashboardSlice?.low_stock_products]
+  );
+  const inventoryRows = useMemo(
+    () => dashboardSlice?.inventory_overview || lowStockProducts,
+    [dashboardSlice?.inventory_overview, lowStockProducts]
+  );
+  const categories = useMemo(
+    () => dashboardSlice?.category_return_rates || [],
+    [dashboardSlice?.category_return_rates]
+  );
   const apparelRate = categories.find((c) => c.category === "Apparel")?.return_rate_pct || 0;
   const baseRunway = forecast?.predicted_days_left || 0;
   const scenarioRunway = Math.max(0, baseRunway + (priceShift * 0.5 - cogsShift * 0.25 - adSpendShift * 0.15));
