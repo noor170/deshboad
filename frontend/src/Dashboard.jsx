@@ -3,6 +3,7 @@ import {
   GlobalControls,
   ForecastSkeleton,
   ForecastHeader,
+  ForecastView,
   FinancialGrid,
   InventoryMetrics,
   DepletionBanner,
@@ -11,11 +12,6 @@ import {
   ReturnRates,
   SupplierBuffers,
 } from "./components/dashboard";
-import {
-  SalesForecastPanel,
-  ReturnForecastPanel,
-  SafetyStockPanel,
-} from "./components/dashboard/ForecastPanel";
 import { ErrorBanner } from "./components/ui";
 import { useDashboardData, usePagination, useDepletionProgress, useDisplayPrefs, useForecastData } from "./hooks";
 
@@ -33,7 +29,7 @@ export default function Dashboard() {
 
   const displayPrefs = useDisplayPrefs(baseCurrency, operationalTimezone);
   const { forecast, dashboardSlice, loading, error, tableError } = useDashboardData(page);
-  const { salesForecast, returnForecast, safetyStock, forecastLoading } = useForecastData(view === "forecast");
+  const { salesForecast, returnForecast, safetyStock, loading: forecastLoading } = useForecastData(view === "forecast");
   const pagination = usePagination(dashboardSlice);
   const depletionProgress = useDepletionProgress(forecast);
 
@@ -139,37 +135,12 @@ export default function Dashboard() {
 
       {/* ==================== AI FORECAST VIEW ==================== */}
       {view === "forecast" && (
-        <div className="forecast-page forecast-page-ai">
-          {/* AI Header */}
-          <div className="forecast-card forecast-card-ai-header">
-            <div className="ai-header-content">
-              <div className="ai-header-badge">
-                <span className="ai-header-dot" />
-                AI ENGINE ACTIVE
-              </div>
-              <h1>Predictive Analytics &amp; Forecasting</h1>
-              <p className="ai-header-subtitle">
-                Machine learning models analyzing sales velocity, return patterns, and supplier lead-time drift
-                to generate actionable forecasts.
-              </p>
-            </div>
-          </div>
-
-          {/* Sales Forecast */}
-          <div className="forecast-card">
-            <SalesForecastPanel data={salesForecast} loading={forecastLoading} />
-          </div>
-
-          {/* Return Forecast + Safety Stock side by side */}
-          <div className="forecast-ai-grid">
-            <div className="forecast-card">
-              <ReturnForecastPanel data={returnForecast} loading={forecastLoading} />
-            </div>
-            <div className="forecast-card">
-              <SafetyStockPanel data={safetyStock} loading={forecastLoading} />
-            </div>
-          </div>
-        </div>
+        <ForecastView
+          salesForecast={salesForecast}
+          returnForecast={returnForecast}
+          safetyStock={safetyStock}
+          loading={forecastLoading}
+        />
       )}
 
       <GlobalControls
