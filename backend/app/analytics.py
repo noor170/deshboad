@@ -15,9 +15,14 @@ except ImportError:  # pragma: no cover - runtime dependency guard
     LinearRegression = None
 
 try:
-    from .database import Inventory, MarketingSpend, Order
+    from sklearn.ensemble import RandomForestClassifier
+except ImportError:  # pragma: no cover - runtime dependency guard
+    RandomForestClassifier = None
+
+try:
+    from .database import Inventory, MarketingSpend, Order, PurchaseOrder
 except ImportError:
-    from database import Inventory, MarketingSpend, Order
+    from database import Inventory, MarketingSpend, Order, PurchaseOrder
 
 
 def compute_dashboard_metrics(
@@ -1021,5 +1026,246 @@ def _simulate_days_to_depletion(
         remaining_stock -= projected_velocity
         total_days += 1
         projected_velocity = max(projected_velocity + velocity_slope, 0.01)
+
+
+# =============================================================================
+# ADVANCED FORECASTING ENGINES
+# =============================================================================
+
+
+def predict_upcoming_sales(db: Session, forecast_days: int = 7) -> dict:
+    """
+    Forecasts e-commerce sales volume for the next N days using
+    LinearRegression with calendar feature engineering.
+    Features: days_elapsed, day_of_week, day_of_month, is_payday.
+    """
+    if LinearRegression is None:
+        return {"error": "scikit-learn is required for predict_upcoming_sales()."}
+
+    raw_orders = db.execute(
+        select(Order.order_date, Order.sale_amount)
+        .where(Order.is_returned.is_(False))
+        .order_by(Order.order_date.asc())
+    ).all()
+
+    if not raw_orders or len(raw_orders) < 20:
+        return {
+            "status": "insufficient_data",
+            "message": "Not enough historical orders for forecasting (minimum 20 required).",
+            "daily_forecast": [],
+        }
+
+    df = pd.DataFrame(raw_orders, columns=["order_date", "total_price"])
+    df["order_date"] = pd.to_datetime(df["order_date"])
+    daily = df.groupby(df["order_date"].dt.date)["total_price"].sum().reset_index()
+    daily.columns = ["date", "total_price"]
+    daily["date_obj"] = pd.to_datetime(daily["date"])
+    daily = daily.sort_values("date_obj").reset_index(drop=True)
+
+    # Feature engineering
+    start_date = daily["date_obj"].min()
+    daily["days_elapsed"] = (daily["date_obj"] - start_date).dt.days
+    daily["day_of_week"] = daily["date_obj"].dt.dayofweek
+    daily["day_of_month"] = daily["date_obj"].dt.day
+    daily["is_payday"] = daily["date_obj"].dt.day.isin([1, 15, 30]).astype(int)
+
+    features = ["days_elapsed", "day_of_week", "day_of_month", "is_payday"]
+    X = daily[features].values
+    y = daily["total_price"].values
+
+    model = LinearRegression().fit(X, y)
+
+    last_elapsed = int(daily["days_elapsed"].max())
+    last_date = daily["date_obj"].max()
+    future_predictions = []
+
+    for i in range(1, forecast_days + 1):
+        future_date = last_date + timedelta(days=i)
+        future_elapsed = last_elapsed + i
+        future_features = np.array(
+            [
+                [
+                    future_elapsed,
+                    future_date.weekday(),
+                    future_date.day,
+                    1 if future_date.day in [1, 15, 30] else 0,
+                ]
+            ]
+        )
+        predicted_value = max(0.0, float(model.predict(future_features)[0]))
+        future_predictions.append(
+            {
+                "date": future_date.strftime("%Y-%m-%d"),
+                "predicted_sales": round(predicted_value, 2),
+                "is_payday": future_date.day in [1, 15, 30],
+            }
+        )
+
+    total_predicted_revenue = round(
+        sum(p["predicted_sales"] for p in future_predictions), 2
+    )
+    historical_daily_avg = round(float(daily["total_price"].mean()), 2)
+
+    return {
+        "status": "success",
+        "model_used": "LinearRegression (days_elapsed, day_of_week, day_of_month, is_payday)",
+        "historical_daily_average": historical_daily_avg,
+        "total_predicted_revenue": total_predicted_revenue,
+        "forecast_days": forecast_days,
+        "daily_forecast": future_predictions,
+    }
+
+
+def predict_incoming_return_load(db: Session) -> dict:
+    """
+    Uses RandomForestClassifier to forecast expected return volumes
+    and predicted refund liability on pending/unfulfilled orders.
+    """
+    if RandomForestClassifier is None:
+        return {"error": "scikit-learn is required for predict_incoming_return_load()."}
+
+    all_orders = db.execute(
+        select(Order.product_id, Order.sale_amount, Order.is_returned)
+    ).all()
+
+    if not all_orders or len(all_orders) < 30:
+        return {
+            "status": "insufficient_data",
+            "expected_return_units": 0,
+            "predicted_refund_liability": 0.0,
+        }
+
+    hist_df = pd.DataFrame(all_orders, columns=["product_id", "price", "was_returned"])
+
+    # Build category mapping from inventory
+    inv_rows = db.execute(select(Inventory.product_id, Inventory.category)).all()
+    category_map = {pid: cat for pid, cat in inv_rows}
+    hist_df["category_id"] = (
+        hist_df["product_id"]
+        .map(category_map)
+        .fillna("Unknown")
+        .astype("category")
+        .cat.codes
+    )
+
+    X = hist_df[["category_id", "price"]].values
+    y = hist_df["was_returned"].values
+
+    clf = RandomForestClassifier(n_estimators=50, random_state=42)
+    clf.fit(X, y)
+
+    # Predict on recent (last 30 days) orders as "pending" proxy
+    recent_cutoff = date.today() - timedelta(days=30)
+    recent = db.execute(
+        select(Order.product_id, Order.sale_amount)
+        .where(Order.order_date >= recent_cutoff)
+        .where(Order.is_returned.is_(False))
+    ).all()
+
+    if not recent:
+        return {
+            "status": "success",
+            "expected_return_units": 0,
+            "predicted_refund_liability": 0.0,
+            "model_used": "RandomForestClassifier (category_id, price)",
+        }
+
+    pending_df = pd.DataFrame(recent, columns=["product_id", "price"])
+    pending_df["category_id"] = (
+        pending_df["product_id"]
+        .map(category_map)
+        .fillna("Unknown")
+        .astype("category")
+        .cat.codes
+    )
+    X_pending = pending_df[["category_id", "price"]].values
+    predictions = clf.predict(X_pending)
+
+    pending_df["predicted_return"] = predictions
+    predicted_returns = pending_df[pending_df["predicted_return"] == 1]
+
+    return {
+        "status": "success",
+        "model_used": "RandomForestClassifier (category_id, price, n_estimators=50)",
+        "expected_return_units": int(len(predicted_returns)),
+        "predicted_refund_liability": round(float(predicted_returns["price"].sum()), 2),
+        "total_pending_orders": int(len(pending_df)),
+        "return_probability": round(
+            float(predictions.sum()) / len(predictions) * 100, 2
+        ),
+    }
+
+
+def dynamic_safety_stock_adjustment(db: Session) -> dict:
+    """
+    Calculates operational lead-time delays from purchase orders to prevent
+    stockouts caused by transit drifts. Returns per-supplier drift metrics.
+    """
+    po_rows = db.execute(
+        select(
+            PurchaseOrder.supplier_id,
+            PurchaseOrder.days_promised,
+            PurchaseOrder.days_actual,
+        )
+    ).all()
+
+    if not po_rows:
+        return {
+            "status": "no_data",
+            "message": "No purchase orders found.",
+            "supplier_drifts": [],
+        }
+
+    df = pd.DataFrame(po_rows, columns=["supplier_id", "days_promised", "days_actual"])
+    df["drift_days"] = df["days_actual"] - df["days_promised"]
+
+    supplier_stats = df.groupby("supplier_id").agg(
+        avg_drift=("drift_days", "mean"),
+        max_drift=("drift_days", "max"),
+        order_count=("drift_days", "count"),
+    )
+    supplier_stats = supplier_stats.reset_index()
+    supplier_stats["avg_drift"] = supplier_stats["avg_drift"].round(2)
+
+    # Compute recommended early-warning days per supplier
+    supplier_stats["early_warning_days"] = (
+        supplier_stats["avg_drift"] + supplier_stats["max_drift"]
+    ) / 2
+    supplier_stats["early_warning_days"] = (
+        supplier_stats["early_warning_days"].round(0).astype(int)
+    )
+
+    return {
+        "status": "success",
+        "supplier_drifts": supplier_stats.to_dict("records"),
+        "overall_avg_drift": round(float(df["drift_days"].mean()), 2),
+        "total_purchase_orders": int(len(df)),
+    }
+
+
+def _safe_min(df: pd.DataFrame, col: str):
+    val = df[col].min()
+    if pd.isna(val):
+        return None
+    if isinstance(val, pd.Timestamp):
+        return val.date().isoformat()
+    if isinstance(val, datetime):
+        return val.date().isoformat()
+    if isinstance(val, date):
+        return val.isoformat()
+    return str(val)
+
+
+def _safe_max(df: pd.DataFrame, col: str):
+    val = df[col].max()
+    if pd.isna(val):
+        return None
+    if isinstance(val, pd.Timestamp):
+        return val.date().isoformat()
+    if isinstance(val, datetime):
+        return val.date().isoformat()
+    if isinstance(val, date):
+        return val.isoformat()
+    return str(val)
 
     return total_days

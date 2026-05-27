@@ -3,7 +3,16 @@ import random
 from datetime import date, datetime, timedelta
 from urllib.parse import quote_plus
 
-from sqlalchemy import Boolean, Column, Date, Float, Integer, String, create_engine, inspect
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    Float,
+    Integer,
+    String,
+    create_engine,
+    inspect,
+)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DB_USER = os.getenv("DB_USER")
@@ -90,8 +99,26 @@ class MarketingSpend(Base):
     ad_spend_amount = Column(Float, nullable=False)
 
 
+class PurchaseOrder(Base):
+    __tablename__ = "purchase_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    supplier_id = Column(Integer, nullable=False, index=True)
+    product_id = Column(Integer, nullable=False, index=True)
+    days_promised = Column(Integer, nullable=False)
+    days_actual = Column(Integer, nullable=False)
+    order_date = Column(Date, nullable=False, index=True)
+
+
 EXPECTED_COLUMNS = {
-    "orders": {"id", "product_id", "sale_amount", "quantity", "order_date", "is_returned"},
+    "orders": {
+        "id",
+        "product_id",
+        "sale_amount",
+        "quantity",
+        "order_date",
+        "is_returned",
+    },
     "inventory": {
         "product_id",
         "product_name",
@@ -101,6 +128,14 @@ EXPECTED_COLUMNS = {
         "shipping_cost_buffer",
     },
     "marketing_spend": {"id", "spend_date", "ad_spend_amount"},
+    "purchase_orders": {
+        "id",
+        "supplier_id",
+        "product_id",
+        "days_promised",
+        "days_actual",
+        "order_date",
+    },
 }
 
 
@@ -127,7 +162,9 @@ def _ensure_schema():
         if table_name not in existing_tables:
             schema_matches = False
             break
-        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        existing_columns = {
+            column["name"] for column in inspector.get_columns(table_name)
+        }
         if existing_columns != columns:
             schema_matches = False
             break
@@ -189,7 +226,9 @@ def seed_demo_data():
             marketing_rows.append(
                 MarketingSpend(
                     spend_date=current_date,
-                    ad_spend_amount=round(base_spend * weekday_multiplier * seasonality, 2),
+                    ad_spend_amount=round(
+                        base_spend * weekday_multiplier * seasonality, 2
+                    ),
                 )
             )
         db.bulk_save_objects(marketing_rows)
@@ -236,10 +275,14 @@ def seed_demo_data():
             weekend_factor = 1.25 if current_date.weekday() in (5, 6) else 1.0
 
             for product_id, _, category, _, cost_price, _ in products:
-                expected_orders = demand_map[product_id] * monthly_factor * weekend_factor
+                expected_orders = (
+                    demand_map[product_id] * monthly_factor * weekend_factor
+                )
                 order_count = max(0, int(random.gauss(expected_orders, 0.9)))
                 for _ in range(order_count):
-                    quantity = max(1, int(random.gauss(1.8 if category == "Apparel" else 1.4, 0.7)))
+                    quantity = max(
+                        1, int(random.gauss(1.8 if category == "Apparel" else 1.4, 0.7))
+                    )
                     gross_multiplier = random.uniform(1.52, 2.35)
                     sale_amount = quantity * round(cost_price * gross_multiplier, 2)
                     returned = random.random() < return_rate_map[category]
@@ -257,6 +300,40 @@ def seed_demo_data():
                     order_id += 1
 
         db.bulk_save_objects(orders)
+
+        # Seed purchase orders for supplier lead-time drift analysis
+        from .database import PurchaseOrder as PO
+
+        purchase_orders = []
+        for supplier_id in [10, 20, 30]:
+            for product_id in [
+                101,
+                102,
+                103,
+                104,
+                105,
+                106,
+                107,
+                108,
+                109,
+                110,
+                111,
+                112,
+            ]:
+                promised = random.choice([7, 10, 14])
+                drift = random.choice([0, 0, 1, 2, 3, 4, 6])
+                for _ in range(random.randint(2, 5)):
+                    po_date = start_date + timedelta(days=random.randint(0, 150))
+                    purchase_orders.append(
+                        PO(
+                            supplier_id=supplier_id,
+                            product_id=product_id,
+                            days_promised=promised,
+                            days_actual=promised + drift,
+                            order_date=po_date,
+                        )
+                    )
+        db.bulk_save_objects(purchase_orders)
         db.commit()
     finally:
         db.close()

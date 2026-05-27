@@ -2,7 +2,15 @@ import os
 import sys
 from datetime import date
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -10,11 +18,25 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, os.path.dirname(__file__))
 
 try:
-    from .analytics import build_inventory_forecast, compute_dashboard_metrics, export_operations_report
+    from .analytics import (
+        build_inventory_forecast,
+        compute_dashboard_metrics,
+        dynamic_safety_stock_adjustment,
+        export_operations_report,
+        predict_incoming_return_load,
+        predict_upcoming_sales,
+    )
     from .database import get_db, init_db
     from .services.alerts import queue_low_stock_alerts
 except ImportError:
-    from analytics import build_inventory_forecast, compute_dashboard_metrics, export_operations_report
+    from analytics import (
+        build_inventory_forecast,
+        compute_dashboard_metrics,
+        dynamic_safety_stock_adjustment,
+        export_operations_report,
+        predict_incoming_return_load,
+        predict_upcoming_sales,
+    )
     from database import get_db, init_db
     from services.alerts import queue_low_stock_alerts
 
@@ -79,7 +101,9 @@ def get_dashboard(
             try:
                 resolved_offset = max(int(cursor), 0)
             except ValueError as exc:
-                raise HTTPException(status_code=400, detail="Invalid cursor value.") from exc
+                raise HTTPException(
+                    status_code=400, detail="Invalid cursor value."
+                ) from exc
         elif offset is not None:
             resolved_offset = offset
         else:
@@ -142,6 +166,36 @@ def export_dashboard(
             file_format=file_format,
         )
         return FileResponse(file_path, media_type=media_type, filename=filename)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/forecast/sales")
+def get_sales_forecast(
+    forecast_days: int = Query(default=7, ge=1, le=30),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = predict_upcoming_sales(db, forecast_days=forecast_days)
+        return {"success": True, "data": result}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/forecast/returns")
+def get_return_forecast(db: Session = Depends(get_db)):
+    try:
+        result = predict_incoming_return_load(db)
+        return {"success": True, "data": result}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/forecast/safety-stock")
+def get_safety_stock(db: Session = Depends(get_db)):
+    try:
+        result = dynamic_safety_stock_adjustment(db)
+        return {"success": True, "data": result}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

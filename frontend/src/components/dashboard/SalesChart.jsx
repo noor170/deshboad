@@ -13,7 +13,7 @@ import { Line } from "react-chartjs-2";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Title, Tooltip, Legend);
 
-export default function SalesChart({ timeSeries, projectedRevenue, projectedProfit }) {
+export default function SalesChart({ timeSeries, projectedRevenue }) {
   const labels = timeSeries?.labels || [];
   const grossSales = timeSeries?.gross_sales || [];
   const netProfit = timeSeries?.net_profit || [];
@@ -24,8 +24,8 @@ export default function SalesChart({ timeSeries, projectedRevenue, projectedProf
       {
         label: "Gross Sales",
         data: grossSales,
-        borderColor: "#3b73f7",
-        backgroundColor: "rgba(59, 115, 247, 0.1)",
+        borderColor: "var(--primary)",
+        backgroundColor: "var(--primary-bg)",
         fill: true,
         tension: 0.3,
         pointRadius: 4,
@@ -34,8 +34,8 @@ export default function SalesChart({ timeSeries, projectedRevenue, projectedProf
       {
         label: "Net Profit",
         data: netProfit,
-        borderColor: "#0d9488",
-        backgroundColor: "rgba(13, 148, 136, 0.1)",
+        borderColor: "var(--positive)",
+        backgroundColor: "var(--positive-bg)",
         fill: true,
         tension: 0.3,
         pointRadius: 4,

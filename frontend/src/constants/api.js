@@ -1,6 +1,9 @@
 export const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "/_/backend" : "");
 export const FORECAST_ENDPOINT = `${API_BASE}/api/v1/forecast/inventory`;
 export const DASHBOARD_ENDPOINT = `${API_BASE}/api/v1/operations/dashboard`;
+export const SALES_FORECAST_ENDPOINT = `${API_BASE}/api/v1/forecast/sales`;
+export const RETURN_FORECAST_ENDPOINT = `${API_BASE}/api/v1/forecast/returns`;
+export const SAFETY_STOCK_ENDPOINT = `${API_BASE}/api/v1/forecast/safety-stock`;
 export const PAGE_SIZE = 5;
 export const SOURCE_CURRENCY = "USD";
 
@@ -15,6 +18,43 @@ export const FALLBACK_FORECAST = {
   predicted_days_left: 7.7,
   forecast_strategy: "linear_regression",
   alert_level: "critical",
+};
+
+export const FALLBACK_SALES_FORECAST = {
+  status: "success",
+  model_used: "LinearRegression (days_elapsed, day_of_week, day_of_month, is_payday)",
+  historical_daily_average: 1580.5,
+  total_predicted_revenue: 12450.8,
+  forecast_days: 7,
+  daily_forecast: [
+    { date: "2026-05-28", predicted_sales: 1420.5, is_payday: false },
+    { date: "2026-05-29", predicted_sales: 1680.3, is_payday: false },
+    { date: "2026-05-30", predicted_sales: 2100.7, is_payday: false },
+    { date: "2026-05-31", predicted_sales: 1350.2, is_payday: false },
+    { date: "2026-06-01", predicted_sales: 2450.0, is_payday: true },
+    { date: "2026-06-02", predicted_sales: 1750.4, is_payday: false },
+    { date: "2026-06-03", predicted_sales: 1700.1, is_payday: false },
+  ],
+};
+
+export const FALLBACK_RETURN_FORECAST = {
+  status: "success",
+  model_used: "RandomForestClassifier (category_id, price, n_estimators=50)",
+  expected_return_units: 34,
+  predicted_refund_liability: 2840.5,
+  total_pending_orders: 210,
+  return_probability: 16.2,
+};
+
+export const FALLBACK_SAFETY_STOCK = {
+  status: "success",
+  overall_avg_drift: 2.8,
+  total_purchase_orders: 120,
+  supplier_drifts: [
+    { supplier_id: 10, avg_drift: 2.5, max_drift: 4, order_count: 45, early_warning_days: 3 },
+    { supplier_id: 20, avg_drift: 3.2, max_drift: 6, order_count: 38, early_warning_days: 5 },
+    { supplier_id: 30, avg_drift: 2.7, max_drift: 5, order_count: 37, early_warning_days: 4 },
+  ],
 };
 
 const FALLBACK_PRODUCTS = [
@@ -62,8 +102,6 @@ export const FALLBACK_DASHBOARD = (_page, pageSize = PAGE_SIZE) => {
 
   const low_stock_products = FALLBACK_PRODUCTS.filter((p) => p.critical_reorder_alert);
   const lowStockTotal = low_stock_products.length;
-  const atRisk = lowStockTotal;
-  const healthy = TOTAL_PRODUCTS - atRisk;
   const paginatedLowStock = low_stock_products.slice(offset, offset + pageSize);
 
   return {
@@ -75,14 +113,14 @@ export const FALLBACK_DASHBOARD = (_page, pageSize = PAGE_SIZE) => {
       ad_spend: 42180.0,
       ltv_cac_ratio: 3.82,
       ltv_cac_status: "healthy",
-      warning_count: atRisk,
+      warning_count: lowStockTotal,
       average_order_value: 215.4,
     },
     gross_revenue: 284560.0,
     net_profit: 89320.0,
     recognized_revenue: 268420.0,
     ad_spend: 42180.0,
-    warning_count: atRisk,
+    warning_count: lowStockTotal,
     ltv_cac_ratio: 3.82,
     ltv_cac_status: "healthy",
     sales_forecast: {
@@ -93,8 +131,8 @@ export const FALLBACK_DASHBOARD = (_page, pageSize = PAGE_SIZE) => {
     },
     time_series: FALLBACK_TIME_SERIES,
     inventory_risk: {
-      at_risk_count: atRisk,
-      healthy_count: healthy,
+      at_risk_count: lowStockTotal,
+      healthy_count: TOTAL_PRODUCTS - lowStockTotal,
       total_skus: TOTAL_PRODUCTS,
       low_stock_products: paginatedLowStock,
     },
@@ -108,7 +146,6 @@ export const FALLBACK_DASHBOARD = (_page, pageSize = PAGE_SIZE) => {
     category_return_rates: FALLBACK_CATEGORIES,
     supplier_drift_buffers: FALLBACK_SUPPLIER_BUFFERS,
     totals: { orders: 1247, units_sold: 3891, returned_orders: 142 },
-    low_stock_products_all: paginatedLowStock,
     pagination: {
       page: safePage,
       limit: pageSize,
