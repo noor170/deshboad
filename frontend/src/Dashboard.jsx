@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  GlobalControls,
   ForecastSkeleton,
   ForecastHeader,
   FinancialGrid,
@@ -8,11 +9,14 @@ import {
   LowStockTable,
 } from "./components/dashboard";
 import { ErrorBanner } from "./components/ui";
-import { useDashboardData, usePagination, useDepletionProgress } from "./hooks";
-import { SOURCE_CURRENCY } from "./constants/api";
+import { useDashboardData, usePagination, useDepletionProgress, useDisplayPrefs } from "./hooks";
 
-export default function Dashboard({ displayPrefs }) {
+export default function Dashboard() {
+  const [baseCurrency, setBaseCurrency] = useState("USD");
+  const [operationalTimezone, setOperationalTimezone] = useState("UTC");
   const [page, setPage] = useState(1);
+
+  const displayPrefs = useDisplayPrefs(baseCurrency, operationalTimezone);
   const { forecast, dashboardSlice, loading, error, tableError } = useDashboardData(page);
   const pagination = usePagination(dashboardSlice);
   const depletionProgress = useDepletionProgress(forecast);
@@ -42,37 +46,46 @@ export default function Dashboard({ displayPrefs }) {
   }
 
   return (
-    <div className="forecast-page">
-      <div className="forecast-card">
-        <ForecastHeader
-          forecast={forecast}
-          normalizedDateRange={normalizedDateRange}
-          displayPrefs={displayPrefs}
-        />
+    <>
+      <div className="forecast-page">
+        <div className="forecast-card">
+          <ForecastHeader
+            forecast={forecast}
+            normalizedDateRange={normalizedDateRange}
+            displayPrefs={displayPrefs}
+          />
 
-        <FinancialGrid dashboardSlice={dashboardSlice} displayPrefs={displayPrefs} />
+          <FinancialGrid dashboardSlice={dashboardSlice} displayPrefs={displayPrefs} />
 
-        <InventoryMetrics forecast={forecast} />
+          <InventoryMetrics forecast={forecast} />
 
-        <DepletionBanner forecast={forecast} depletionProgress={depletionProgress} />
+          <DepletionBanner forecast={forecast} depletionProgress={depletionProgress} />
 
-        {error ? (
-          <ErrorBanner>
-            Using fallback forecast data because the live request failed: {error}
-          </ErrorBanner>
-        ) : null}
+          {error ? (
+            <ErrorBanner>
+              Using fallback forecast data because the live request failed: {error}
+            </ErrorBanner>
+          ) : null}
 
-        <LowStockTable
-          products={dashboardSlice?.low_stock_products}
-          pagination={dashboardSlice?.pagination}
-          currentPage={page}
-          totalPages={pagination.totalPages}
-          hasNext={pagination.hasNext}
-          hasPrevious={pagination.hasPrevious}
-          onPageChange={setPage}
-          tableError={tableError}
-        />
+          <LowStockTable
+            products={dashboardSlice?.low_stock_products}
+            pagination={dashboardSlice?.pagination}
+            currentPage={page}
+            totalPages={pagination.totalPages}
+            hasNext={pagination.hasNext}
+            hasPrevious={pagination.hasPrevious}
+            onPageChange={setPage}
+            tableError={tableError}
+          />
+        </div>
       </div>
-    </div>
+
+      <GlobalControls
+        baseCurrency={baseCurrency}
+        operationalTimezone={operationalTimezone}
+        onCurrencyChange={setBaseCurrency}
+        onTimezoneChange={setOperationalTimezone}
+      />
+    </>
   );
 }

@@ -1,8 +1,9 @@
 import { decimal } from "../../constants/utils";
+import { Pagination } from "../ui";
 
 export default function LowStockTable({
   products,
-  pagination,
+  pagination: paginationData,
   currentPage,
   totalPages,
   hasNext,
@@ -10,6 +11,12 @@ export default function LowStockTable({
   onPageChange,
   tableError,
 }) {
+  const totalItems = paginationData?.low_stock_total ?? 0;
+  const limit = paginationData?.limit ?? 5;
+  const offset = paginationData?.offset ?? 0;
+  const startItem = totalItems > 0 ? offset + 1 : 0;
+  const endItem = Math.min(offset + limit, totalItems);
+
   return (
     <div className="forecast-table-panel">
       <div className="forecast-table-header">
@@ -17,8 +24,17 @@ export default function LowStockTable({
           <p className="forecast-kicker">Low-Stock Queue</p>
           <h2>Server-side paginated inventory alerts</h2>
         </div>
-        <div className="forecast-pagination-meta">
-          Page {pagination?.page || currentPage} of {totalPages}
+        <div className="forecast-pagination-info">
+          {totalItems > 0 ? (
+            <span className="pagination-range">
+              Showing {startItem}–{endItem} of {totalItems} products
+            </span>
+          ) : (
+            <span className="pagination-range">No products</span>
+          )}
+          <span className="pagination-page-meta">
+            Page {paginationData?.page || currentPage} of {totalPages}
+          </span>
         </div>
       </div>
 
@@ -53,24 +69,13 @@ export default function LowStockTable({
         </table>
       </div>
 
-      <div className="forecast-pagination">
-        <button
-          type="button"
-          className="forecast-page-button"
-          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-          disabled={!hasPrevious}
-        >
-          Previous
-        </button>
-        <button
-          type="button"
-          className="forecast-page-button"
-          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-          disabled={!hasNext}
-        >
-          Next
-        </button>
-      </div>
+      <Pagination
+        currentPage={paginationData?.page || currentPage}
+        totalPages={totalPages}
+        hasNext={hasNext}
+        hasPrevious={hasPrevious}
+        onPageChange={onPageChange}
+      />
     </div>
   );
 }
