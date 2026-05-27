@@ -12,6 +12,7 @@ import { ErrorBanner } from "./components/ui";
 import { useDashboardData, usePagination, useDepletionProgress, useDisplayPrefs } from "./hooks";
 
 export default function Dashboard() {
+  const [theme, setTheme] = useState("dark");
   const [baseCurrency, setBaseCurrency] = useState("USD");
   const [operationalTimezone, setOperationalTimezone] = useState("UTC");
   const [page, setPage] = useState(1);
@@ -30,6 +31,10 @@ export default function Dashboard() {
     )}`;
   }, [dashboardSlice, displayPrefs]);
 
+  const handleThemeToggle = () => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  };
+
   if (loading) return <ForecastSkeleton />;
 
   if (!forecast) {
@@ -46,7 +51,7 @@ export default function Dashboard() {
   }
 
   return (
-    <>
+    <div data-theme={theme}>
       <div className="forecast-page">
         <div className="forecast-card">
           <ForecastHeader
@@ -85,7 +90,9 @@ export default function Dashboard() {
         operationalTimezone={operationalTimezone}
         onCurrencyChange={setBaseCurrency}
         onTimezoneChange={setOperationalTimezone}
+        theme={theme}
+        onThemeToggle={handleThemeToggle}
       />
-    </>
+    </div>
   );
 }

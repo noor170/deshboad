@@ -2,12 +2,15 @@ import { useMemo } from "react";
 import { CURRENCY_CONFIG } from "../../constants/currency";
 import { TIMEZONE_OPTIONS, groupTimezonesByRegion } from "../../constants/timezone";
 import { useLiveClock } from "../../hooks";
+import { ThemeToggle } from "../ui";
 
 export default function GlobalControls({
   baseCurrency,
   operationalTimezone,
   onCurrencyChange,
   onTimezoneChange,
+  theme,
+  onThemeToggle,
 }) {
   const selectedCurrency = CURRENCY_CONFIG.find((c) => c.code === baseCurrency);
   const selectedTimezone = TIMEZONE_OPTIONS.find((t) => t.value === operationalTimezone);
@@ -65,6 +68,11 @@ export default function GlobalControls({
                 </optgroup>
               ))}
             </select>
+          </div>
+
+          <div className="global-footer-field">
+            <label>Theme</label>
+            <ThemeToggle theme={theme} onToggle={onThemeToggle} />
           </div>
         </div>
       </div>
