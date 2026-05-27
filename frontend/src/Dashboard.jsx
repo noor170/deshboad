@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
+  ChevronDown,
+  Download,
+  DollarSign,
+  Gauge,
+  PackagePlus,
+  SlidersHorizontal,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
+import {
   BarElement,
   CategoryScale,
   Chart as ChartJS,
@@ -26,6 +37,8 @@ ChartJS.register(
 );
 
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "/_/backend" : "");
+const RETURN_THRESHOLD = 10;
+const HIGH_SPEND_ALERT_THRESHOLD = 30000;
 
 async function parseJsonResponse(response) {
   const contentType = response.headers.get("content-type") || "";
@@ -36,6 +49,7 @@ async function parseJsonResponse(response) {
 
   return response.json();
 }
+
 const thresholdLinePlugin = {
   id: "thresholdLine",
   afterDatasetsDraw(chart, _args, pluginOptions) {
@@ -65,6 +79,12 @@ const defaultDateRange = () => {
   };
 };
 
+const defaultSimulation = {
+  adSpendAdjustment: 0,
+  supplierCogsShift: 0,
+  pricePerUnitChange: 0,
+};
+
 const currency = (value) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -72,11 +92,23 @@ const currency = (value) =>
     maximumFractionDigits: 0,
   }).format(value || 0);
 
-function KPI({ title, value, subtitle, tone = "neutral", badge }) {
+const numberFormat = (value) =>
+  new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+  }).format(value || 0);
+
+function KPI({ title, value, subtitle, tone = "neutral", badge, icon: Icon }) {
   return (
     <div className={`kpi-card kpi-${tone}`}>
       <div className="kpi-title-row">
-        <span className="kpi-title">{title}</span>
+        <div className="kpi-title-stack">
+          <span className="kpi-title">{title}</span>
+          {Icon ? (
+            <span className={`kpi-icon kpi-icon-${tone}`}>
+              <Icon size={16} />
+            </span>
+          ) : null}
+        </div>
         {badge ? <span className={`kpi-badge kpi-badge-${tone}`}>{badge}</span> : null}
       </div>
       <div className="kpi-value">{value}</div>
@@ -85,21 +117,488 @@ function KPI({ title, value, subtitle, tone = "neutral", badge }) {
   );
 }
 
-function LowStockRow({ item }) {
+function DashboardSkeleton() {
   return (
-    <tr>
-      <td>
-        <div className="table-product">{item.product_name}</div>
-        <div className="table-meta">{item.category}</div>
-      </td>
-      <td>{item.stock_level}</td>
-      <td>{item.sales_velocity_30d.toFixed(2)}/day</td>
-      <td>
-        <span className="days-badge">
-          {Math.round(item.days_of_inventory_left)} Days Left
+    <div className="workspace-shell">
+      <aside className="sidebar">
+        <div className="brand-block">
+          <div className="brand-mark">RO</div>
+          <div>
+            <h1>Retail Ops</h1>
+            <p>Unified commerce workspace</p>
+          </div>
+        </div>
+        <div className="sidebar-panel">
+          <div className="sidebar-label">Date Range</div>
+          <div className="skeleton skeleton-input" />
+          <div className="skeleton skeleton-input" />
+        </div>
+        <div className="sidebar-panel">
+          <div className="sidebar-label">Controls</div>
+          <div className="skeleton skeleton-card" />
+          <div className="skeleton skeleton-button" />
+        </div>
+      </aside>
+      <main className="main-content">
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Store performance</p>
+            <h2>E-Commerce & Retail Operations Dashboard</h2>
+            <p className="header-copy">Loading operating snapshot and analytics...</p>
+          </div>
+        </header>
+        <section className="kpi-grid">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className="kpi-card">
+              <div className="skeleton skeleton-label" />
+              <div className="skeleton skeleton-value" />
+              <div className="skeleton skeleton-copy" />
+            </div>
+          ))}
+        </section>
+        <section className="content-grid">
+          <div className="panel panel-large">
+            <div className="skeleton skeleton-chart" />
+          </div>
+          <div className="panel">
+            <div className="skeleton skeleton-chart" />
+          </div>
+        </section>
+        <section className="table-grid">
+          <div className="panel">
+            <div className="skeleton skeleton-table" />
+          </div>
+          <div className="panel">
+            <div className="skeleton skeleton-card-large" />
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function OperatingSnapshotPanel({
+  metrics,
+  filters,
+  setFilters,
+  netProfitMode,
+  setNetProfitMode,
+  exporting,
+  exportReport,
+}) {
+  const [selectedPoItem, setSelectedPoItem] = useState(null);
+  const [simulationOpen, setSimulationOpen] = useState(true);
+  const [simulation, setSimulation] = useState(defaultSimulation);
+
+  const headlineValue = netProfitMode ? metrics.net_profit : metrics.gross_revenue;
+  const headlineTitle = netProfitMode ? "Net Profit" : "Gross Revenue";
+  const topReturnCategory = metrics.category_return_rates[0] || null;
+  const returnRate = topReturnCategory?.return_rate_pct || 0;
+  const hasMarginLeakageAlert =
+    Boolean(topReturnCategory) &&
+    returnRate > RETURN_THRESHOLD &&
+    metrics.ad_spend >= HIGH_SPEND_ALERT_THRESHOLD;
+
+  const reorderFeed = metrics.low_stock_products.slice(0, 5);
+
+  const baselineRunway = useMemo(() => {
+    if (!metrics.inventory_overview.length) return 0;
+    const finiteRunway = metrics.inventory_overview
+      .map((item) => item.days_of_inventory_left)
+      .filter((value) => Number.isFinite(value));
+    if (!finiteRunway.length) return 0;
+    return finiteRunway.reduce((total, value) => total + value, 0) / finiteRunway.length;
+  }, [metrics.inventory_overview]);
+
+  const scenario = useMemo(() => {
+    const demandMultiplier =
+      (1 + simulation.adSpendAdjustment / 100 * 0.45) *
+      Math.max(0.35, 1 - simulation.pricePerUnitChange * 0.018);
+    const cogsPressure = 1 - simulation.supplierCogsShift / 100 * 0.35;
+    const runwayMultiplier = cogsPressure / Math.max(demandMultiplier, 0.25);
+    const adjustedRunway = baselineRunway * runwayMultiplier;
+    const baselinePercent = Math.min(100, baselineRunway / 60 * 100);
+    const adjustedPercent = Math.min(100, adjustedRunway / 60 * 100);
+    return {
+      adjustedRunway,
+      delta: adjustedRunway - baselineRunway,
+      demandMultiplier,
+      baselinePercent,
+      adjustedPercent,
+    };
+  }, [baselineRunway, simulation]);
+
+  const poDraft = useMemo(() => {
+    if (!selectedPoItem) return null;
+    const reorderVolume = Math.max(
+      0,
+      Math.ceil(selectedPoItem.sales_velocity_30d * 60 - selectedPoItem.stock_level)
+    );
+    return {
+      reorderVolume,
+      currentStock: selectedPoItem.stock_level,
+      projectedCoverage: Math.round(selectedPoItem.sales_velocity_30d * 60),
+    };
+  }, [selectedPoItem]);
+
+  return (
+    <div className={`panel operating-snapshot-panel ${netProfitMode ? "net-mode" : ""}`}>
+      <div className="panel-header operating-header">
+        <div>
+          <h3>Operating Snapshot</h3>
+          <p>Bridge demand, margin, and replenishment risk in one operating panel.</p>
+        </div>
+        <span className={`net-state-badge ${netProfitMode ? "active" : ""}`}>
+          {netProfitMode ? "Net View Active" : "Gross View Active"}
         </span>
-      </td>
-    </tr>
+      </div>
+
+      <div className="snapshot-controls">
+        <div className="control-group control-dates">
+          <label>
+            <span>Start</span>
+            <input
+              type="date"
+              value={filters.startDate}
+              onChange={(event) =>
+                setFilters((current) => ({ ...current, startDate: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            <span>End</span>
+            <input
+              type="date"
+              value={filters.endDate}
+              onChange={(event) =>
+                setFilters((current) => ({ ...current, endDate: event.target.value }))
+              }
+            />
+          </label>
+        </div>
+
+        <div className="control-actions">
+          <button
+            type="button"
+            className={`mode-control ${netProfitMode ? "on" : ""}`}
+            aria-pressed={netProfitMode}
+            onClick={() => setNetProfitMode((current) => !current)}
+          >
+            <span className="mode-copy">
+              <strong>Dynamic Net Profit Mode</strong>
+              <span>Gross revenue minus COGS, shipping buffers, and ad spend.</span>
+            </span>
+            <span className={`mode-switch ${netProfitMode ? "on" : ""}`}>
+              <span />
+            </span>
+          </button>
+          <button className="export-button snapshot-export" type="button" onClick={exportReport} disabled={exporting}>
+            <Download size={16} />
+            <span>{exporting ? "Exporting..." : "Export Report"}</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="operating-kpi-grid">
+        <KPI
+          title={headlineTitle}
+          value={currency(headlineValue)}
+          subtitle={`${numberFormat(metrics.totals.orders)} orders in selected range`}
+          tone={netProfitMode ? "positive" : "primary"}
+          icon={DollarSign}
+        />
+        <KPI
+          title="LTV:CAC Ratio"
+          value={`${metrics.ltv_cac_ratio.toFixed(2)}:1`}
+          subtitle={`Associated ad spend ${currency(metrics.ad_spend)}`}
+          tone={metrics.ltv_cac_status === "warning" ? "warning" : "positive"}
+          badge={metrics.ltv_cac_status === "warning" ? "Needs attention" : "Healthy"}
+          icon={Gauge}
+        />
+        <KPI
+          title="Return Frequency Tracker"
+          value={`${returnRate.toFixed(2)}%`}
+          subtitle={
+            topReturnCategory
+              ? `${topReturnCategory.category} vs ${RETURN_THRESHOLD}% safety threshold`
+              : `Monitor against ${RETURN_THRESHOLD}% safety threshold`
+          }
+          tone={hasMarginLeakageAlert ? "danger" : returnRate > RETURN_THRESHOLD ? "warning" : "neutral"}
+          badge={hasMarginLeakageAlert ? "Margin Leakage Alert" : returnRate > RETURN_THRESHOLD ? "Watchlist" : "Stable"}
+          icon={TrendingDown}
+        />
+      </div>
+
+      <div className="operating-grid">
+        <div className="operating-feed">
+          <div className="subpanel-header">
+            <div>
+              <h4>Critical Reorder Alert Feed</h4>
+              <p>Under 15 days of inventory remaining.</p>
+            </div>
+            <span className="feed-count">{reorderFeed.length} flagged</span>
+          </div>
+
+          <div className="alert-feed">
+            {reorderFeed.length ? (
+              reorderFeed.map((item) => (
+                <div key={item.product_id} className="alert-item">
+                  <div className="alert-item-main">
+                    <div className="alert-product">
+                      <strong>{item.product_name}</strong>
+                      <span>{item.category}</span>
+                    </div>
+                    <div className="alert-metrics">
+                      <div>
+                        <span>Velocity</span>
+                        <strong>{item.sales_velocity_30d.toFixed(2)} units / day</strong>
+                      </div>
+                      <div>
+                        <span>Runway</span>
+                        <strong>{Math.round(item.days_of_inventory_left)} Days Left</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="draft-po-button"
+                    onClick={() => setSelectedPoItem(item)}
+                  >
+                    <PackagePlus size={16} />
+                    <span>Draft PO</span>
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="empty-feed">
+                <TrendingUp size={18} />
+                <span>No products are currently below the 15-day reorder threshold.</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="simulation-panel">
+          <button
+            type="button"
+            className="simulation-toggle"
+            onClick={() => setSimulationOpen((current) => !current)}
+            aria-expanded={simulationOpen}
+          >
+            <span className="simulation-toggle-copy">
+              <SlidersHorizontal size={16} />
+              <span>What-If Simulation</span>
+            </span>
+            <ChevronDown size={16} className={simulationOpen ? "chevron-open" : ""} />
+          </button>
+
+          {simulationOpen ? (
+            <div className="simulation-body">
+              <div className="simulation-slider-group">
+                <label>
+                  <span>Ad Spend Adjustment</span>
+                  <strong>{simulation.adSpendAdjustment > 0 ? "+" : ""}{simulation.adSpendAdjustment}%</strong>
+                </label>
+                <input
+                  type="range"
+                  min="-50"
+                  max="50"
+                  step="5"
+                  value={simulation.adSpendAdjustment}
+                  onChange={(event) =>
+                    setSimulation((current) => ({
+                      ...current,
+                      adSpendAdjustment: Number(event.target.value),
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="simulation-slider-group">
+                <label>
+                  <span>Supplier COGS Shift</span>
+                  <strong>{simulation.supplierCogsShift > 0 ? "+" : ""}{simulation.supplierCogsShift}%</strong>
+                </label>
+                <input
+                  type="range"
+                  min="-20"
+                  max="20"
+                  step="2"
+                  value={simulation.supplierCogsShift}
+                  onChange={(event) =>
+                    setSimulation((current) => ({
+                      ...current,
+                      supplierCogsShift: Number(event.target.value),
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="simulation-slider-group">
+                <label>
+                  <span>Price Per Unit Change</span>
+                  <strong>{simulation.pricePerUnitChange > 0 ? "+" : ""}{currency(simulation.pricePerUnitChange)}</strong>
+                </label>
+                <input
+                  type="range"
+                  min="-10"
+                  max="20"
+                  step="1"
+                  value={simulation.pricePerUnitChange}
+                  onChange={(event) =>
+                    setSimulation((current) => ({
+                      ...current,
+                      pricePerUnitChange: Number(event.target.value),
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="runway-compare">
+                <div className="runway-label-row">
+                  <span>Average inventory runway</span>
+                  <strong>{scenario.adjustedRunway.toFixed(1)} days</strong>
+                </div>
+                <div className="progress-stack">
+                  <div className="progress-row">
+                    <span>Base</span>
+                    <div className="progress-track">
+                      <div className="progress-bar base" style={{ width: `${scenario.baselinePercent}%` }} />
+                    </div>
+                    <strong>{baselineRunway.toFixed(1)}d</strong>
+                  </div>
+                  <div className="progress-row">
+                    <span>Scenario</span>
+                    <div className="progress-track">
+                      <div className="progress-bar scenario" style={{ width: `${scenario.adjustedPercent}%` }} />
+                    </div>
+                    <strong>{scenario.adjustedRunway.toFixed(1)}d</strong>
+                  </div>
+                </div>
+                <div className={`simulation-impact ${scenario.delta >= 0 ? "positive" : "danger"}`}>
+                  {scenario.delta >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+                  <span>
+                    {scenario.delta >= 0 ? "Extends" : "Shortens"} average runway by{" "}
+                    <strong>{Math.abs(scenario.delta).toFixed(1)} days</strong>
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {selectedPoItem && poDraft ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setSelectedPoItem(null)}>
+          <div
+            className="po-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="po-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="po-modal-header">
+              <div>
+                <h4 id="po-modal-title">Draft Purchase Order</h4>
+                <p>
+                  {selectedPoItem.product_name} <span>|</span> {selectedPoItem.category}
+                </p>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setSelectedPoItem(null)}>
+                Close
+              </button>
+            </div>
+            <div className="po-metric-grid">
+              <div className="po-metric">
+                <span>Current Stock</span>
+                <strong>{numberFormat(poDraft.currentStock)} units</strong>
+              </div>
+              <div className="po-metric">
+                <span>Sales Velocity</span>
+                <strong>{selectedPoItem.sales_velocity_30d.toFixed(2)} units / day</strong>
+              </div>
+              <div className="po-metric">
+                <span>60-Day Coverage Need</span>
+                <strong>{numberFormat(poDraft.projectedCoverage)} units</strong>
+              </div>
+              <div className="po-metric accent">
+                <span>Reorder Volume</span>
+                <strong>{numberFormat(poDraft.reorderVolume)} units</strong>
+              </div>
+            </div>
+            <div className="po-formula">
+              Reorder Volume = (Sales Velocity × 60 Days) - Current Stock
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LegacySidebar({
+  filters,
+  setFilters,
+  netProfitMode,
+  setNetProfitMode,
+  exporting,
+  exportReport,
+}) {
+  return (
+    <aside className="sidebar">
+      <div className="brand-block">
+        <div className="brand-mark">RO</div>
+        <div>
+          <h1>Retail Ops</h1>
+          <p>Unified commerce workspace</p>
+        </div>
+      </div>
+
+      <div className="sidebar-panel">
+        <div className="sidebar-label">Date Range</div>
+        <label>
+          <span>Start</span>
+          <input
+            type="date"
+            value={filters.startDate}
+            onChange={(event) =>
+              setFilters((current) => ({ ...current, startDate: event.target.value }))
+            }
+          />
+        </label>
+        <label>
+          <span>End</span>
+          <input
+            type="date"
+            value={filters.endDate}
+            onChange={(event) =>
+              setFilters((current) => ({ ...current, endDate: event.target.value }))
+            }
+          />
+        </label>
+      </div>
+
+      <div className="sidebar-panel">
+        <div className="sidebar-label">Controls</div>
+        <div className="mode-card">
+          <div>
+            <strong>Dynamic Net Profit Mode</strong>
+            <p>Subtracts product cost, shipping buffers, and ad spend.</p>
+          </div>
+          <button
+            type="button"
+            className={`mode-switch ${netProfitMode ? "on" : ""}`}
+            aria-pressed={netProfitMode}
+            onClick={() => setNetProfitMode((current) => !current)}
+          >
+            <span />
+          </button>
+        </div>
+        <button className="export-button" type="button" onClick={exportReport} disabled={exporting}>
+          {exporting ? "Exporting..." : "Export Report"}
+        </button>
+      </div>
+    </aside>
   );
 }
 
@@ -271,12 +770,7 @@ export default function Dashboard() {
   };
 
   if (loading) {
-    return (
-      <div className="loading-shell">
-        <div className="spinner" />
-        <p>Loading retail operations dashboard...</p>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (!metrics) {
@@ -289,64 +783,17 @@ export default function Dashboard() {
   }
 
   const headlineValue = netProfitMode ? metrics.net_profit : metrics.gross_revenue;
-  const headlineTitle = netProfitMode ? "Net Profit" : "Gross Revenue";
 
   return (
     <div className="workspace-shell">
-      <aside className="sidebar">
-        <div className="brand-block">
-          <div className="brand-mark">RO</div>
-          <div>
-            <h1>Retail Ops</h1>
-            <p>Unified commerce workspace</p>
-          </div>
-        </div>
-
-        <div className="sidebar-panel">
-          <div className="sidebar-label">Date Range</div>
-          <label>
-            <span>Start</span>
-            <input
-              type="date"
-              value={filters.startDate}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, startDate: event.target.value }))
-              }
-            />
-          </label>
-          <label>
-            <span>End</span>
-            <input
-              type="date"
-              value={filters.endDate}
-              onChange={(event) =>
-                setFilters((current) => ({ ...current, endDate: event.target.value }))
-              }
-            />
-          </label>
-        </div>
-
-        <div className="sidebar-panel">
-          <div className="sidebar-label">Controls</div>
-          <div className="mode-card">
-            <div>
-              <strong>Dynamic Net Profit Mode</strong>
-              <p>Subtracts product cost, shipping buffers, and ad spend.</p>
-            </div>
-            <button
-              type="button"
-              className={`mode-switch ${netProfitMode ? "on" : ""}`}
-              aria-pressed={netProfitMode}
-              onClick={() => setNetProfitMode((current) => !current)}
-            >
-              <span />
-            </button>
-          </div>
-          <button className="export-button" type="button" onClick={exportReport} disabled={exporting}>
-            {exporting ? "Exporting..." : "Export Report"}
-          </button>
-        </div>
-      </aside>
+      <LegacySidebar
+        filters={filters}
+        setFilters={setFilters}
+        netProfitMode={netProfitMode}
+        setNetProfitMode={setNetProfitMode}
+        exporting={exporting}
+        exportReport={exportReport}
+      />
 
       <main className="main-content">
         <header className="page-header">
@@ -366,16 +813,18 @@ export default function Dashboard() {
 
         <section className="kpi-grid">
           <KPI
-            title={headlineTitle}
+            title={netProfitMode ? "Net Profit" : "Gross Revenue"}
             value={currency(headlineValue)}
             subtitle={`${metrics.totals.orders} orders in selected range`}
             tone={netProfitMode ? "positive" : "primary"}
+            icon={DollarSign}
           />
           <KPI
             title="Operational Warnings"
             value={metrics.warning_count}
             subtitle="Products under 15 days of inventory"
             tone={metrics.warning_count > 0 ? "danger" : "positive"}
+            icon={AlertTriangle}
           />
           <KPI
             title="LTV to CAC Ratio"
@@ -383,6 +832,7 @@ export default function Dashboard() {
             subtitle={`Ad spend ${currency(metrics.ad_spend)}`}
             tone={metrics.ltv_cac_status === "warning" ? "warning" : "positive"}
             badge={metrics.ltv_cac_status === "warning" ? "Needs attention" : "Healthy"}
+            icon={Gauge}
           />
         </section>
 
@@ -397,9 +847,7 @@ export default function Dashboard() {
                     : "Gross view shows top-line sales before operating deductions."}
                 </p>
               </div>
-              <div className="panel-metric">
-                {currency(netProfitMode ? metrics.net_profit : metrics.gross_revenue)}
-              </div>
+              <div className="panel-metric">{currency(headlineValue)}</div>
             </div>
             <div className="chart-panel">
               {lineData ? <Line data={lineData} options={lineOptions} /> : null}
@@ -440,7 +888,19 @@ export default function Dashboard() {
                 <tbody>
                   {metrics.low_stock_products.length ? (
                     metrics.low_stock_products.map((item) => (
-                      <LowStockRow key={item.product_id} item={item} />
+                      <tr key={item.product_id}>
+                        <td>
+                          <div className="table-product">{item.product_name}</div>
+                          <div className="table-meta">{item.category}</div>
+                        </td>
+                        <td>{item.stock_level}</td>
+                        <td>{item.sales_velocity_30d.toFixed(2)}/day</td>
+                        <td>
+                          <span className="days-badge">
+                            {Math.round(item.days_of_inventory_left)} Days Left
+                          </span>
+                        </td>
+                      </tr>
                     ))
                   ) : (
                     <tr>
@@ -454,34 +914,15 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="panel">
-            <div className="panel-header">
-              <div>
-                <h3>Operating Snapshot</h3>
-                <p>Selected period summary across sales, returns, and volume.</p>
-              </div>
-            </div>
-            <div className="snapshot-list">
-              <div className="snapshot-row">
-                <span>Recognized Revenue</span>
-                <strong>{currency(metrics.recognized_revenue)}</strong>
-              </div>
-              <div className="snapshot-row">
-                <span>Returned Orders</span>
-                <strong>{metrics.totals.returned_orders}</strong>
-              </div>
-              <div className="snapshot-row">
-                <span>Units Sold</span>
-                <strong>{metrics.totals.units_sold}</strong>
-              </div>
-              <div className="snapshot-row">
-                <span>Coverage Window</span>
-                <strong>
-                  {metrics.date_range.start_date} to {metrics.date_range.end_date}
-                </strong>
-              </div>
-            </div>
-          </div>
+          <OperatingSnapshotPanel
+            metrics={metrics}
+            filters={filters}
+            setFilters={setFilters}
+            netProfitMode={netProfitMode}
+            setNetProfitMode={setNetProfitMode}
+            exporting={exporting}
+            exportReport={exportReport}
+          />
         </section>
       </main>
     </div>
