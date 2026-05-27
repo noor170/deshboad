@@ -9,7 +9,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST")
-DB_NAME = os.getenv("DB_NAME")
+DB_NAME = os.getenv("DB_NAME", "defaultdb")
 DB_PORT = os.getenv("DB_PORT", "3306")
 DB_DIALECT = os.getenv("DB_DIALECT", "sqlite").lower()
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "./ecommerce.db")

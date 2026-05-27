@@ -25,7 +25,17 @@ ChartJS.register(
   Filler
 );
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "/_/backend" : "");
+
+async function parseJsonResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const bodyPreview = (await response.text()).slice(0, 120);
+    throw new Error(`Expected JSON but received ${contentType || "unknown content type"}: ${bodyPreview}`);
+  }
+
+  return response.json();
+}
 const thresholdLinePlugin = {
   id: "thresholdLine",
   afterDatasetsDraw(chart, _args, pluginOptions) {
@@ -115,7 +125,7 @@ export default function Dashboard() {
       try {
         const response = await fetch(`${API_BASE}/api/v1/operations/dashboard?${queryString}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const json = await response.json();
+        const json = await parseJsonResponse(response);
         setMetrics(json.data);
       } catch (fetchError) {
         setError(fetchError.message);

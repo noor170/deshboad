@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass123}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-ecommerce_ops}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-defaultdb}
       MYSQL_USER: ${MYSQL_USER:-ecommerce_user}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ecommerce_pass123}
     ports:
@@ -34,7 +34,7 @@ services:
       DB_DIALECT: mysql
       DB_HOST: db
       DB_PORT: 3306
-      DB_NAME: ${MYSQL_DATABASE:-ecommerce_ops}
+      DB_NAME: ${MYSQL_DATABASE:-defaultdb}
       DB_USER: ${MYSQL_USER:-ecommerce_user}
       DB_PASSWORD: ${MYSQL_PASSWORD:-ecommerce_pass123}
     ports:
