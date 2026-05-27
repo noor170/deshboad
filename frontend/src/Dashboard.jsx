@@ -129,14 +129,9 @@ function DashboardSkeleton() {
           </div>
         </div>
         <div className="sidebar-panel">
-          <div className="sidebar-label">Date Range</div>
-          <div className="skeleton skeleton-input" />
-          <div className="skeleton skeleton-input" />
-        </div>
-        <div className="sidebar-panel">
-          <div className="sidebar-label">Controls</div>
+          <div className="sidebar-label">Workspace Summary</div>
           <div className="skeleton skeleton-card" />
-          <div className="skeleton skeleton-button" />
+          <div className="skeleton skeleton-card" />
         </div>
       </aside>
       <main className="main-content">
@@ -536,14 +531,16 @@ function OperatingSnapshotPanel({
   );
 }
 
-function LegacySidebar({
-  filters,
-  setFilters,
-  netProfitMode,
-  setNetProfitMode,
-  exporting,
-  exportReport,
-}) {
+function LegacySidebar({ metrics, netProfitMode }) {
+  const averageRunway = useMemo(() => {
+    if (!metrics?.inventory_overview?.length) return 0;
+    const runway = metrics.inventory_overview
+      .map((item) => item.days_of_inventory_left)
+      .filter((value) => Number.isFinite(value));
+    if (!runway.length) return 0;
+    return runway.reduce((sum, value) => sum + value, 0) / runway.length;
+  }, [metrics]);
+
   return (
     <aside className="sidebar">
       <div className="brand-block">
@@ -555,48 +552,51 @@ function LegacySidebar({
       </div>
 
       <div className="sidebar-panel">
-        <div className="sidebar-label">Date Range</div>
-        <label>
-          <span>Start</span>
-          <input
-            type="date"
-            value={filters.startDate}
-            onChange={(event) =>
-              setFilters((current) => ({ ...current, startDate: event.target.value }))
-            }
-          />
-        </label>
-        <label>
-          <span>End</span>
-          <input
-            type="date"
-            value={filters.endDate}
-            onChange={(event) =>
-              setFilters((current) => ({ ...current, endDate: event.target.value }))
-            }
-          />
-        </label>
+        <div className="sidebar-label">Workspace Summary</div>
+        <div className="sidebar-stat-list">
+          <div className="sidebar-stat">
+            <span>View Mode</span>
+            <strong>{netProfitMode ? "Net Margin" : "Gross Revenue"}</strong>
+          </div>
+          <div className="sidebar-stat">
+            <span>Coverage Window</span>
+            <strong>
+              {metrics.date_range.start_date} to {metrics.date_range.end_date}
+            </strong>
+          </div>
+          <div className="sidebar-stat">
+            <span>Average Runway</span>
+            <strong>{averageRunway.toFixed(1)} days</strong>
+          </div>
+        </div>
       </div>
 
       <div className="sidebar-panel">
-        <div className="sidebar-label">Controls</div>
-        <div className="mode-card">
-          <div>
-            <strong>Dynamic Net Profit Mode</strong>
-            <p>Subtracts product cost, shipping buffers, and ad spend.</p>
+        <div className="sidebar-label">Live Signals</div>
+        <div className="sidebar-signal-list">
+          <div className="sidebar-signal">
+            <span>At-Risk SKUs</span>
+            <strong>{metrics.warning_count}</strong>
           </div>
-          <button
-            type="button"
-            className={`mode-switch ${netProfitMode ? "on" : ""}`}
-            aria-pressed={netProfitMode}
-            onClick={() => setNetProfitMode((current) => !current)}
-          >
-            <span />
-          </button>
+          <div className="sidebar-signal">
+            <span>LTV:CAC</span>
+            <strong>{metrics.ltv_cac_ratio.toFixed(2)}:1</strong>
+          </div>
+          <div className="sidebar-signal">
+            <span>Ad Spend</span>
+            <strong>{currency(metrics.ad_spend)}</strong>
+          </div>
         </div>
-        <button className="export-button" type="button" onClick={exportReport} disabled={exporting}>
-          {exporting ? "Exporting..." : "Export Report"}
-        </button>
+      </div>
+
+      <div className="sidebar-panel sidebar-note-panel">
+        <div className="sidebar-label">Operator Focus</div>
+        <div className="mode-card sidebar-note">
+          <div>
+            <strong>Use the operating snapshot panel</strong>
+            <p>Adjust the date range, simulate margin shifts, and draft replenishment from the main workspace.</p>
+          </div>
+        </div>
       </div>
     </aside>
   );
@@ -787,12 +787,8 @@ export default function Dashboard() {
   return (
     <div className="workspace-shell">
       <LegacySidebar
-        filters={filters}
-        setFilters={setFilters}
+        metrics={metrics}
         netProfitMode={netProfitMode}
-        setNetProfitMode={setNetProfitMode}
-        exporting={exporting}
-        exportReport={exportReport}
       />
 
       <main className="main-content">
@@ -867,12 +863,24 @@ export default function Dashboard() {
           </div>
         </section>
 
+        <section className="full-width-section">
+          <OperatingSnapshotPanel
+            metrics={metrics}
+            filters={filters}
+            setFilters={setFilters}
+            netProfitMode={netProfitMode}
+            setNetProfitMode={setNetProfitMode}
+            exporting={exporting}
+            exportReport={exportReport}
+          />
+        </section>
+
         <section className="table-grid">
           <div className="panel">
             <div className="panel-header">
               <div>
-                <h3>Critical Reorder Alerts</h3>
-                <p>Products at less than 15 days of inventory cover.</p>
+                <h3>Inventory Coverage</h3>
+                <p>Current stock, sales velocity, and runway by product.</p>
               </div>
             </div>
             <div className="table-wrap">
@@ -882,12 +890,12 @@ export default function Dashboard() {
                     <th>Product</th>
                     <th>Stock</th>
                     <th>Velocity</th>
-                    <th>Alert</th>
+                    <th>Runway</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {metrics.low_stock_products.length ? (
-                    metrics.low_stock_products.map((item) => (
+                  {metrics.inventory_overview.length ? (
+                    metrics.inventory_overview.slice(0, 6).map((item) => (
                       <tr key={item.product_id}>
                         <td>
                           <div className="table-product">{item.product_name}</div>
@@ -896,9 +904,13 @@ export default function Dashboard() {
                         <td>{item.stock_level}</td>
                         <td>{item.sales_velocity_30d.toFixed(2)}/day</td>
                         <td>
-                          <span className="days-badge">
-                            {Math.round(item.days_of_inventory_left)} Days Left
-                          </span>
+                          {Number.isFinite(item.days_of_inventory_left) ? (
+                            <span className={`days-badge ${item.days_of_inventory_left < 15 ? "" : "days-badge-stable"}`}>
+                              {Math.round(item.days_of_inventory_left)} Days Left
+                            </span>
+                          ) : (
+                            <span className="days-badge days-badge-stable">Stable</span>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -914,15 +926,32 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <OperatingSnapshotPanel
-            metrics={metrics}
-            filters={filters}
-            setFilters={setFilters}
-            netProfitMode={netProfitMode}
-            setNetProfitMode={setNetProfitMode}
-            exporting={exporting}
-            exportReport={exportReport}
-          />
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h3>Commerce Coverage Summary</h3>
+                <p>High-level throughput and margin context for the selected period.</p>
+              </div>
+            </div>
+            <div className="snapshot-list">
+              <div className="snapshot-row">
+                <span>Recognized Revenue</span>
+                <strong>{currency(metrics.recognized_revenue)}</strong>
+              </div>
+              <div className="snapshot-row">
+                <span>Returned Orders</span>
+                <strong>{numberFormat(metrics.totals.returned_orders)}</strong>
+              </div>
+              <div className="snapshot-row">
+                <span>Units Sold</span>
+                <strong>{numberFormat(metrics.totals.units_sold)}</strong>
+              </div>
+              <div className="snapshot-row">
+                <span>Flagged Reorders</span>
+                <strong>{numberFormat(metrics.warning_count)}</strong>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
     </div>
