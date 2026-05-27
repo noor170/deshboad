@@ -1,117 +1,72 @@
 import { useEffect, useMemo, useState } from "react";
 
-const MOCK_FORECAST_ENDPOINT = "/api/v1/forecast/mock";
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "/_/backend" : "");
+const FORECAST_ENDPOINT = `${API_BASE}/api/v1/forecast/inventory`;
 
-/**
- * Expected API payload shape from FastAPI.
- * {
- *   product_name: string,
- *   current_stock: number,
- *   daily_burn_velocity: number,
- *   daily_sales_velocity_slope: number,
- *   predicted_days_left: number,
- *   forecast_strategy: string,
- *   historical_average_velocity: number,
- *   alert_level: "healthy" | "watch" | "critical"
- * }
- */
-const MOCK_FORECAST_RESPONSE = {
+const fallbackForecast = {
+  product_id: 101,
   product_name: "AeroNoise Headphones",
+  category: "Electronics",
   current_stock: 142,
   daily_burn_velocity: 18.4,
   daily_sales_velocity_slope: 0.72,
+  historical_average_velocity: 15.9,
   predicted_days_left: 7.7,
   forecast_strategy: "linear_regression",
-  historical_average_velocity: 15.9,
   alert_level: "critical",
 };
 
-const currencyless = (value, digits = 1) =>
+const decimal = (value, digits = 1) =>
   new Intl.NumberFormat("en-US", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   }).format(value || 0);
 
-function getAlertTheme(level) {
-  switch (level) {
-    case "critical":
-      return {
-        banner: "border-rose-500/30 bg-rose-500/10 text-rose-100",
-        badge: "bg-rose-500/15 text-rose-200 ring-1 ring-inset ring-rose-400/30",
-        progress: "bg-rose-400",
-      };
-    case "watch":
-      return {
-        banner: "border-amber-500/30 bg-amber-500/10 text-amber-100",
-        badge: "bg-amber-500/15 text-amber-200 ring-1 ring-inset ring-amber-400/30",
-        progress: "bg-amber-400",
-      };
-    default:
-      return {
-        banner: "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
-        badge: "bg-emerald-500/15 text-emerald-200 ring-1 ring-inset ring-emerald-400/30",
-        progress: "bg-emerald-400",
-      };
-  }
+function getForecastTone(level) {
+  if (level === "critical") return "critical";
+  if (level === "watch") return "watch";
+  return "healthy";
 }
 
-async function mockForecastRequest() {
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  return {
-    ok: true,
-    json: async () => MOCK_FORECAST_RESPONSE,
-  };
-}
-
-async function fetchForecastCard() {
-  try {
-    const response = await fetch(MOCK_FORECAST_ENDPOINT, {
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-  } catch (_error) {
-    const fallbackResponse = await mockForecastRequest();
-    return fallbackResponse.json();
+async function parseJson(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const bodyPreview = (await response.text()).slice(0, 120);
+    throw new Error(`Expected JSON but received ${contentType || "unknown"}: ${bodyPreview}`);
   }
+  return response.json();
 }
 
 function ForecastSkeleton() {
   return (
-    <div className="min-h-screen bg-zinc-950 px-4 py-10 text-zinc-100 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-5xl">
-        <div className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-2xl shadow-black/30 backdrop-blur xl:p-8">
-          <div className="animate-pulse space-y-6">
-            <div className="space-y-3">
-              <div className="h-3 w-32 rounded-full bg-zinc-800" />
-              <div className="h-8 w-72 rounded-xl bg-zinc-800" />
-              <div className="h-4 w-96 max-w-full rounded-full bg-zinc-800" />
-            </div>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              {[0, 1, 2].map((item) => (
-                <div key={item} className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
-                  <div className="h-3 w-24 rounded-full bg-zinc-800" />
-                  <div className="mt-4 h-8 w-28 rounded-xl bg-zinc-800" />
-                  <div className="mt-3 h-4 w-40 rounded-full bg-zinc-800" />
-                </div>
-              ))}
-            </div>
-            <div className="h-24 rounded-2xl bg-zinc-800/80" />
-          </div>
+    <div className="forecast-page">
+      <div className="forecast-card">
+        <div className="forecast-skeleton">
+          <div className="forecast-skeleton-line short" />
+          <div className="forecast-skeleton-line medium" />
+          <div className="forecast-skeleton-line long" />
         </div>
+        <div className="forecast-grid">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className="forecast-metric-card skeleton-card">
+              <div className="forecast-skeleton-line short" />
+              <div className="forecast-skeleton-block" />
+              <div className="forecast-skeleton-line medium" />
+            </div>
+          ))}
+        </div>
+        <div className="forecast-skeleton-banner" />
       </div>
     </div>
   );
 }
 
-function MetricCard({ label, value, helper }) {
+function ForecastMetric({ label, value, helper }) {
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5 shadow-lg shadow-black/20">
-      <p className="text-sm font-medium text-zinc-400">{label}</p>
-      <p className="mt-3 text-3xl font-semibold tracking-tight text-zinc-50">{value}</p>
-      <p className="mt-2 text-sm text-zinc-500">{helper}</p>
+    <div className="forecast-metric-card">
+      <span className="forecast-metric-label">{label}</span>
+      <strong className="forecast-metric-value">{value}</strong>
+      <span className="forecast-metric-helper">{helper}</span>
     </div>
   );
 }
@@ -129,12 +84,20 @@ export default function Dashboard() {
       setError("");
 
       try {
-        const payload = await fetchForecastCard();
+        const response = await fetch(FORECAST_ENDPOINT, {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const payload = await parseJson(response);
         if (active) {
-          setForecast(payload);
+          setForecast(payload.data);
         }
       } catch (requestError) {
         if (active) {
+          setForecast(fallbackForecast);
           setError(requestError instanceof Error ? requestError.message : "Unable to load forecast.");
         }
       } finally {
@@ -150,9 +113,9 @@ export default function Dashboard() {
     };
   }, []);
 
-  const runwayProgress = useMemo(() => {
+  const depletionProgress = useMemo(() => {
     if (!forecast) return 0;
-    return Math.max(6, Math.min(100, (forecast.predicted_days_left / 30) * 100));
+    return Math.max(8, Math.min(100, (forecast.predicted_days_left / 30) * 100));
   }, [forecast]);
 
   if (loading) {
@@ -161,91 +124,80 @@ export default function Dashboard() {
 
   if (!forecast) {
     return (
-      <div className="min-h-screen bg-zinc-950 px-4 py-10 text-zinc-100 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-5xl rounded-3xl border border-rose-500/20 bg-zinc-900/80 p-6 shadow-2xl shadow-black/30">
-          <p className="text-lg font-semibold text-rose-200">Forecast unavailable</p>
-          <p className="mt-2 text-sm text-zinc-400">{error || "The mock forecasting endpoint did not return data."}</p>
+      <div className="forecast-page">
+        <div className="forecast-card">
+          <div className="forecast-banner forecast-banner-critical">
+            <strong>Forecast unavailable</strong>
+            <span>{error || "No forecasting payload was returned from the backend."}</span>
+          </div>
         </div>
       </div>
     );
   }
 
-  const theme = getAlertTheme(forecast.alert_level);
+  const tone = getForecastTone(forecast.alert_level);
 
   return (
-    <div className="min-h-screen bg-zinc-950 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.16),_transparent_30%),radial-gradient(circle_at_right,_rgba(168,85,247,0.12),_transparent_25%)] px-4 py-10 text-zinc-100 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-5xl">
-        <div className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-2xl shadow-black/30 backdrop-blur xl:p-8">
-          <div className="flex flex-col gap-4 border-b border-zinc-800 pb-6 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                Predictive Inventory Forecast
-              </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-50">
-                {forecast.product_name}
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-400">
-                This card combines historical sales velocity with a scikit-learn regression slope to
-                estimate exactly when inventory will reach zero.
-              </p>
-            </div>
-
-            <div className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${theme.badge}`}>
-              {forecast.forecast_strategy.replaceAll("_", " ")}
-            </div>
+    <div className="forecast-page">
+      <div className="forecast-card">
+        <div className="forecast-header">
+          <div>
+            <p className="forecast-kicker">Predictive Inventory Forecast</p>
+            <h1>{forecast.product_name}</h1>
+            <p className="forecast-copy">
+              Real-time inventory depletion estimate powered by historical order data and a
+              scikit-learn linear regression slope.
+            </p>
           </div>
-
-          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <MetricCard
-              label="Current Stock"
-              value={`${currencyless(forecast.current_stock, 0)} units`}
-              helper="Live on-hand inventory available for sale."
-            />
-            <MetricCard
-              label="Daily Burn Velocity"
-              value={`${currencyless(forecast.daily_burn_velocity)} / day`}
-              helper={`Fallback average ${currencyless(forecast.historical_average_velocity)} units/day`}
-            />
-            <MetricCard
-              label="Velocity Slope"
-              value={`${forecast.daily_sales_velocity_slope >= 0 ? "+" : ""}${currencyless(forecast.daily_sales_velocity_slope, 2)}`}
-              helper="Positive slope means demand is accelerating over time."
-            />
+          <div className={`forecast-strategy forecast-${tone}`}>
+            {forecast.forecast_strategy.replaceAll("_", " ")}
           </div>
-
-          <div className={`mt-6 rounded-2xl border p-5 ${theme.banner}`}>
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.14em] opacity-80">
-                  Depletion Warning
-                </p>
-                <p className="mt-2 text-2xl font-semibold tracking-tight">
-                  Inventory will run out in {currencyless(forecast.predicted_days_left)} days.
-                </p>
-                <p className="mt-2 max-w-2xl text-sm leading-6 opacity-80">
-                  Keep campaigns and replenishment plans aligned. If this runway is too short, slow
-                  paid demand or place a replenishment order immediately.
-                </p>
-              </div>
-
-              <div className="min-w-[220px] rounded-2xl bg-black/20 p-4">
-                <div className="flex items-center justify-between text-sm text-zinc-100/80">
-                  <span>Runway health</span>
-                  <span>{currencyless(forecast.predicted_days_left)} days</span>
-                </div>
-                <div className="mt-3 h-3 overflow-hidden rounded-full bg-zinc-950/60">
-                  <div className={`h-full rounded-full ${theme.progress}`} style={{ width: `${runwayProgress}%` }} />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {error ? (
-            <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-              Mock endpoint fallback was used because the network request failed: {error}
-            </div>
-          ) : null}
         </div>
+
+        <div className="forecast-grid">
+          <ForecastMetric
+            label="Current Stock"
+            value={`${decimal(forecast.current_stock, 0)} units`}
+            helper={`${forecast.category} on-hand inventory`}
+          />
+          <ForecastMetric
+            label="Daily Burn Velocity"
+            value={`${decimal(forecast.daily_burn_velocity)} / day`}
+            helper={`Fallback avg ${decimal(forecast.historical_average_velocity)} units/day`}
+          />
+          <ForecastMetric
+            label="Regression Slope"
+            value={`${forecast.daily_sales_velocity_slope >= 0 ? "+" : ""}${decimal(forecast.daily_sales_velocity_slope, 2)}`}
+            helper="Positive means demand is accelerating"
+          />
+        </div>
+
+        <div className={`forecast-banner forecast-banner-${tone}`}>
+          <div>
+            <p className="forecast-banner-label">Depletion Prediction</p>
+            <h2>{decimal(forecast.predicted_days_left)} days until inventory reaches zero</h2>
+            <p>
+              This estimate combines historical daily sales with regression-derived burn-rate trend
+              logic. Use it to decide whether to accelerate replenishment or reduce demand pressure.
+            </p>
+          </div>
+
+          <div className="forecast-runway">
+            <div className="forecast-runway-header">
+              <span>Runway Health</span>
+              <strong>{decimal(forecast.predicted_days_left)} days</strong>
+            </div>
+            <div className="forecast-progress-track">
+              <div className={`forecast-progress-bar forecast-progress-${tone}`} style={{ width: `${depletionProgress}%` }} />
+            </div>
+          </div>
+        </div>
+
+        {error ? (
+          <div className="forecast-error">
+            Using fallback forecast data because the live request failed: {error}
+          </div>
+        ) : null}
       </div>
     </div>
   );
