@@ -101,12 +101,11 @@ export default function Dashboard({ displayPrefs }) {
       setTableError("");
 
       try {
-        const offset = (page - 1) * PAGE_SIZE;
         const [forecastResponse, dashboardResponse] = await Promise.all([
           fetch(FORECAST_ENDPOINT, {
             headers: { Accept: "application/json" },
           }),
-          fetch(`${DASHBOARD_ENDPOINT}?limit=${PAGE_SIZE}&offset=${offset}`, {
+          fetch(`${DASHBOARD_ENDPOINT}?page=${page}&limit=${PAGE_SIZE}`, {
             headers: { Accept: "application/json" },
           }),
         ]);
@@ -133,8 +132,16 @@ export default function Dashboard({ displayPrefs }) {
           setDashboardSlice({
             low_stock_products: [],
             pagination: {
+              page,
               limit: PAGE_SIZE,
               offset: (page - 1) * PAGE_SIZE,
+              total_pages: 1,
+              has_next: false,
+              has_previous: page > 1,
+              next_page: null,
+              previous_page: page > 1 ? page - 1 : null,
+              next_cursor: null,
+              previous_cursor: page > 1 ? String((page - 2) * PAGE_SIZE) : null,
               low_stock_total: 0,
             },
           });
@@ -161,8 +168,7 @@ export default function Dashboard({ displayPrefs }) {
   }, [forecast]);
 
   const totalPages = useMemo(() => {
-    const total = dashboardSlice?.pagination?.low_stock_total || 0;
-    return Math.max(1, Math.ceil(total / PAGE_SIZE));
+    return Math.max(1, dashboardSlice?.pagination?.total_pages || 1);
   }, [dashboardSlice]);
 
   const normalizedDateRange = useMemo(() => {
@@ -286,7 +292,7 @@ export default function Dashboard({ displayPrefs }) {
               <h2>Server-side paginated inventory alerts</h2>
             </div>
             <div className="forecast-pagination-meta">
-              Page {page} of {totalPages}
+              Page {dashboardSlice?.pagination?.page || page} of {totalPages}
             </div>
           </div>
 
@@ -326,7 +332,7 @@ export default function Dashboard({ displayPrefs }) {
               type="button"
               className="forecast-page-button"
               onClick={() => setPage((current) => Math.max(1, current - 1))}
-              disabled={page <= 1}
+              disabled={!dashboardSlice?.pagination?.has_previous}
             >
               Previous
             </button>
@@ -334,7 +340,7 @@ export default function Dashboard({ displayPrefs }) {
               type="button"
               className="forecast-page-button"
               onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-              disabled={page >= totalPages}
+              disabled={!dashboardSlice?.pagination?.has_next}
             >
               Next
             </button>

@@ -26,6 +26,7 @@ def compute_dashboard_metrics(
     end_date: date | None = None,
     limit: int = 25,
     offset: int = 0,
+    page: int = 1,
 ) -> dict:
     orders_df, inventory_df, marketing_df = _load_frames(db, start_date, end_date)
     return _build_dashboard_payload(
@@ -36,6 +37,7 @@ def compute_dashboard_metrics(
         end_date,
         limit=limit,
         offset=offset,
+        page=page,
     )
 
 
@@ -196,12 +198,14 @@ def _build_dashboard_payload(
     end_date: date | None,
     limit: int = 25,
     offset: int = 0,
+    page: int = 1,
 ) -> dict:
     limit = max(int(limit), 1)
     offset = max(int(offset), 0)
+    page = max(int(page), 1)
 
     if inventory_df.empty:
-        return _empty_payload(start_date, end_date, limit=limit, offset=offset)
+        return _empty_payload(start_date, end_date, limit=limit, offset=offset, page=page)
 
     merged_orders = _build_orders_export_frame(orders_df, inventory_df)
     if merged_orders.empty:
@@ -238,8 +242,12 @@ def _build_dashboard_payload(
             "time_series": {"labels": [], "gross_sales": [], "net_profit": []},
             "totals": {"orders": 0, "units_sold": 0, "returned_orders": 0},
             "pagination": {
-                "limit": limit,
-                "offset": offset,
+                **_build_pagination_meta(
+                    total_items=int(inventory_health.shape[0]),
+                    limit=limit,
+                    offset=offset,
+                    page=page,
+                ),
                 "inventory_total": int(inventory_health.shape[0]),
                 "low_stock_total": 0,
                 "category_total": 0,
@@ -358,8 +366,12 @@ def _build_dashboard_payload(
             "returned_orders": int(merged_orders["is_returned"].sum()),
         },
         "pagination": {
-            "limit": limit,
-            "offset": offset,
+            **_build_pagination_meta(
+                total_items=int(low_stock_products.shape[0]),
+                limit=limit,
+                offset=offset,
+                page=page,
+            ),
             "inventory_total": int(inventory_health.shape[0]),
             "low_stock_total": int(low_stock_products.shape[0]),
             "category_total": int(category_return_rates.shape[0]),
@@ -486,7 +498,13 @@ def _safe_date_string(value) -> str | None:
     return str(value)
 
 
-def _empty_payload(start_date: date | None, end_date: date | None, limit: int = 25, offset: int = 0) -> dict:
+def _empty_payload(
+    start_date: date | None,
+    end_date: date | None,
+    limit: int = 25,
+    offset: int = 0,
+    page: int = 1,
+) -> dict:
     return {
         "date_range": {
             "start_date": start_date.isoformat() if start_date else None,
@@ -505,12 +523,37 @@ def _empty_payload(start_date: date | None, end_date: date | None, limit: int = 
         "time_series": {"labels": [], "gross_sales": [], "net_profit": []},
         "totals": {"orders": 0, "units_sold": 0, "returned_orders": 0},
         "pagination": {
-            "limit": limit,
-            "offset": offset,
+            **_build_pagination_meta(total_items=0, limit=limit, offset=offset, page=page),
             "inventory_total": 0,
             "low_stock_total": 0,
             "category_total": 0,
         },
+    }
+
+
+def _build_pagination_meta(total_items: int, limit: int, offset: int, page: int) -> dict:
+    total_items = max(int(total_items), 0)
+    limit = max(int(limit), 1)
+    offset = max(int(offset), 0)
+    page = max(int(page), 1)
+    total_pages = max(int(np.ceil(total_items / limit)) if total_items else 1, 1)
+    has_next = offset + limit < total_items
+    has_previous = offset > 0
+
+    next_offset = offset + limit if has_next else None
+    previous_offset = max(offset - limit, 0) if has_previous else None
+
+    return {
+        "page": page,
+        "limit": limit,
+        "offset": offset,
+        "total_pages": total_pages,
+        "has_next": has_next,
+        "has_previous": has_previous,
+        "next_page": page + 1 if has_next else None,
+        "previous_page": page - 1 if has_previous else None,
+        "next_cursor": str(next_offset) if next_offset is not None else None,
+        "previous_cursor": str(previous_offset) if previous_offset is not None else None,
     }
 
 

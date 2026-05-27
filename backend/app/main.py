@@ -68,19 +68,36 @@ def health():
 def get_dashboard(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
     limit: int = Query(default=25, ge=1, le=250),
-    offset: int = Query(default=0, ge=0),
+    cursor: str | None = Query(default=None),
+    offset: int | None = Query(default=None, ge=0),
     db: Session = Depends(get_db),
 ):
     try:
+        if cursor is not None:
+            try:
+                resolved_offset = max(int(cursor), 0)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid cursor value.") from exc
+        elif offset is not None:
+            resolved_offset = offset
+        else:
+            resolved_offset = (page - 1) * limit
+
+        resolved_page = (resolved_offset // limit) + 1
+
         metrics = compute_dashboard_metrics(
             db,
             start_date=start_date,
             end_date=end_date,
+            page=resolved_page,
             limit=limit,
-            offset=offset,
+            offset=resolved_offset,
         )
         return {"success": True, "data": metrics}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
