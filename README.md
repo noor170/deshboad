@@ -28,6 +28,165 @@ Recent updates added predictive inventory forecasting and stronger operational t
 
 ---
 
+## Linear Regression Forecasting
+
+The project now includes a real predictive inventory forecasting flow. This is used to estimate how quickly a product will run out of stock based on historical daily sales rather than only showing static inventory levels.
+
+### Where Forecasting Is Used
+
+Forecasting is used in two places:
+
+1. **Backend calculation layer**
+   - Implemented in [backend/app/analytics.py](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/backend/app/analytics.py)
+   - Main functions:
+     - `forecast_inventory_depletion(sales_rows, current_stock)`
+     - `build_inventory_forecast(db, product_id=None)`
+
+2. **Frontend forecasting card**
+   - Rendered in [frontend/src/Dashboard.jsx](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/frontend/src/Dashboard.jsx)
+   - Fetches live data from:
+     - `GET /api/v1/forecast/inventory`
+
+The frontend card shows:
+- current stock
+- projected daily burn velocity
+- regression slope
+- exact predicted days left until depletion
+
+### What Data The Forecast Uses
+
+The forecast uses historical order rows from the `orders` table and current stock from the `inventory` table.
+
+Expected historical input shape:
+
+```python
+[
+    {"sales_date": "2026-05-01", "quantity": 14},
+    {"sales_date": "2026-05-02", "quantity": 12},
+    {"sales_date": "2026-05-03", "quantity": 17},
+]
+```
+
+The code also accepts equivalent aliases such as:
+- `order_date` or `date`
+- `units_sold` or `qty`
+
+### How The Forecast Is Calculated
+
+The forecasting calculation works in these stages:
+
+1. **Normalize raw history**
+   - Convert incoming sales rows into a Pandas DataFrame
+   - Parse dates
+   - Convert quantities to numeric values
+   - Group by day so each day has one sales quantity total
+
+2. **Fill missing dates**
+   - Build a continuous daily date range from the first sale date to the last
+   - Reindex the DataFrame so missing days become `0`
+
+3. **Fit linear regression**
+   - Create an integer day index:
+
+   ```text
+   day 0, day 1, day 2, day 3, ...
+   ```
+
+   - Use:
+     - `x = day index`
+     - `y = daily_quantity`
+
+   - Fit scikit-learn:
+
+   ```python
+   regression = LinearRegression()
+   regression.fit(x_axis, velocity_series)
+   ```
+
+4. **Extract the slope**
+   - `regression.coef_[0]` is treated as the daily sales velocity slope
+   - Positive slope means demand is increasing over time
+   - Flat or negative slope means trend-based acceleration is not trusted for depletion simulation
+
+5. **Choose the burn velocity**
+   - If the regression trend is usable:
+     - use the regression output as the projected burn velocity
+     - use the slope to increase future daily demand during the depletion simulation
+   - Otherwise:
+     - fall back to average observed sales velocity
+
+6. **Simulate stock depletion**
+   - Starting from `current_stock`, subtract projected daily burn velocity each day
+   - If a positive slope exists, increase the burn rate gradually over time
+   - Stop when stock reaches zero
+   - Return the exact number of days remaining
+
+### Fallback Logic
+
+The forecasting code deliberately avoids over-trusting regression when the trend is weak or misleading.
+
+Fallback behavior:
+
+- **No stock**
+  - forecast returns `0` days left
+  - strategy: `no_stock_remaining`
+
+- **No history**
+  - forecast returns `0` days left
+  - strategy: `no_history_available`
+
+- **Flat or negative slope**
+  - regression slope is ignored
+  - the model falls back to rolling and historical average daily velocity
+  - strategy: `fallback_average`
+
+- **Positive slope**
+  - regression is used directly
+  - strategy: `linear_regression`
+
+### Formula Interpretation
+
+This implementation does not use a single closed-form equation for final depletion because it simulates daily inventory burn. Conceptually, it combines:
+
+```text
+Predicted Daily Burn = Regression Output or Fallback Average
+Days Left ≈ Current Stock / Effective Daily Burn
+```
+
+When a positive slope exists, the daily burn is increased over time during simulation, so depletion can happen faster than a simple static division would suggest.
+
+### Output Payload
+
+The backend returns a forecasting payload like this:
+
+```json
+{
+  "product_id": 101,
+  "product_name": "AeroNoise Headphones",
+  "category": "Electronics",
+  "current_stock": 142,
+  "daily_burn_velocity": 18.4,
+  "daily_sales_velocity_slope": 0.72,
+  "historical_average_velocity": 15.9,
+  "predicted_days_left": 7.7,
+  "forecast_strategy": "linear_regression",
+  "alert_level": "critical"
+}
+```
+
+### Why This Design Was Chosen
+
+This forecasting design is pragmatic for an operations dashboard:
+
+- simple enough to explain
+- fast enough to run inline in a request
+- better than static average-only runway estimates
+- safer than blindly trusting regression in declining or noisy demand cases
+
+It gives operators a more actionable depletion estimate while keeping the implementation maintainable.
+
+---
+
 ## Detailed Features
 
 - **Operations KPI dashboard**
