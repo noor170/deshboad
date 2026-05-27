@@ -46,6 +46,8 @@ The Vite dev server proxies `/api` requests to the FastAPI backend, so both serv
 
 ## Environment Variables (Optional)
 
+See [`.env.example`](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/.env.example) for a complete template you can use for Vercel or local development.
+
 To connect to an **AWS RDS MySQL** instance instead of the local SQLite fallback, set:
 
 | Variable | Description |
