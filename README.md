@@ -112,6 +112,229 @@ In practice:
 
 ---
 
+## Architecture Diagrams
+
+These diagrams are written in Mermaid so the project structure, runtime flow, and integrations are easier to inspect.
+
+### Use Case Diagram
+
+```mermaid
+graph TD
+    User((Dashboard User))
+    Operator((Ops Admin))
+    Runner((GitHub Actions Runner))
+
+    subgraph Dashboard System
+        UC1(View Operations Dashboard)
+        UC2(Fetch Aggregated Metrics)
+        UC3(Export Operations Report)
+        UC4(Trigger Low-Stock Slack Alerts)
+        UC5(Run CI Pipeline)
+        UC6(Deploy Application)
+    end
+
+    User --> UC1
+    UC1 --> UC2
+    User --> UC3
+    Operator --> UC4
+    Runner --> UC5
+    UC5 --> UC6
+    Runner --> UC4
+```
+
+### Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Dashboard User
+    participant FE as React Frontend (frontend/src/Dashboard.jsx)
+    participant BE as FastAPI Backend (backend/app/main.py)
+    participant DB as SQLAlchemy Layer (backend/app/database.py)
+    participant AN as Analytics Engine (backend/app/analytics.py)
+
+    User->>FE: Opens dashboard page
+    activate FE
+    FE->>BE: GET /api/v1/operations/dashboard
+    activate BE
+    BE->>DB: Open DB session and load records
+    activate DB
+    DB-->>BE: Orders, inventory, marketing rows
+    deactivate DB
+    BE->>AN: Compute dashboard metrics
+    activate AN
+    AN->>AN: Aggregate with Pandas/NumPy
+    AN-->>BE: Return metrics payload
+    deactivate AN
+    BE-->>FE: HTTP 200 JSON response
+    deactivate BE
+    FE-->>User: Render KPI cards, charts, alerts
+    deactivate FE
+```
+
+### Communication Diagram
+
+```mermaid
+graph LR
+    User[User]
+    FE[React Frontend<br/>Dashboard.jsx]
+    BE[FastAPI Backend<br/>main.py]
+    DBLayer[SQLAlchemy Layer<br/>database.py]
+    DB[(SQLite / MySQL)]
+    Analytics[Pandas / NumPy Analytics<br/>analytics.py]
+
+    User -->|1. Open dashboard| FE
+    FE -->|2. GET /api/v1/operations/dashboard| BE
+    BE -->|3. Query records| DBLayer
+    DBLayer -->|3.1 Fetch rows| DB
+    BE -->|4. Process operational data| Analytics
+    Analytics -->|4.1 Metrics payload| BE
+    BE -->|5. JSON response| FE
+```
+
+### Class Diagram
+
+```mermaid
+classDiagram
+    class FastAPI_App {
+        +root()
+        +health()
+        +get_dashboard()
+        +export_dashboard()
+        +trigger_low_stock_slack_alerts()
+    }
+
+    class DatabaseConfig {
+        +engine
+        +SessionLocal
+        +Base
+        +get_db()
+        +init_db()
+    }
+
+    class Order {
+        +id: int
+        +product_id: int
+        +sale_amount: float
+        +quantity: int
+        +order_date: date
+        +is_returned: bool
+    }
+
+    class Inventory {
+        +product_id: int
+        +product_name: str
+        +category: str
+        +stock_level: int
+        +cost_price: float
+        +shipping_cost_buffer: float
+    }
+
+    class MarketingSpend {
+        +id: int
+        +spend_date: date
+        +ad_spend_amount: float
+    }
+
+    class AnalyticsEngine {
+        +compute_dashboard_metrics()
+        +export_operations_report()
+        +_build_inventory_health()
+        +_build_time_series()
+    }
+
+    class AlertService {
+        +send_slack_low_stock_alert()
+        +get_low_stock_alert_candidates()
+        +queue_low_stock_alerts()
+    }
+
+    FastAPI_App --> DatabaseConfig : uses
+    DatabaseConfig *-- Order : manages
+    DatabaseConfig *-- Inventory : manages
+    DatabaseConfig *-- MarketingSpend : manages
+    FastAPI_App ..> AnalyticsEngine : invokes
+    FastAPI_App ..> AlertService : invokes
+    AnalyticsEngine ..> Order : consumes
+    AnalyticsEngine ..> Inventory : consumes
+    AnalyticsEngine ..> MarketingSpend : consumes
+    AlertService ..> Inventory : evaluates
+    AlertService ..> Order : calculates velocity from
+```
+
+### ERD Diagram
+
+```mermaid
+erDiagram
+    ORDERS {
+        int id PK
+        int product_id
+        float sale_amount
+        int quantity
+        date order_date
+        boolean is_returned
+    }
+
+    INVENTORY {
+        int product_id PK
+        string product_name
+        string category
+        int stock_level
+        float cost_price
+        float shipping_cost_buffer
+    }
+
+    MARKETING_SPEND {
+        int id PK
+        date spend_date
+        float ad_spend_amount
+    }
+
+    INVENTORY ||--o{ ORDERS : "product_id"
+```
+
+### Deployment / Integration Diagram
+
+```mermaid
+graph TD
+    Browser[User Browser]
+    Frontend[Vercel Frontend Service]
+    Backend[FastAPI Backend Service]
+    Database[(SQLite / MySQL / Aiven)]
+    Slack[Slack Incoming Webhook]
+    Actions[GitHub Actions]
+
+    Browser --> Frontend
+    Frontend -->|API calls| Backend
+    Backend --> Database
+    Actions -->|POST /api/v1/alerts/slack/low-stock| Backend
+    Backend -->|Webhook payload| Slack
+    Actions -->|CI / CD workflows| Frontend
+    Actions -->|CI / CD workflows| Backend
+```
+
+### Alert Trigger Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant GA as GitHub Action
+    participant API as FastAPI Alert Endpoint
+    participant Alert as Alert Service
+    participant DB as Database
+    participant Slack as Slack Webhook
+
+    GA->>API: POST /api/v1/alerts/slack/low-stock + X-Alert-Token
+    API->>Alert: queue_low_stock_alerts()
+    Alert->>DB: Load inventory and recent orders
+    DB-->>Alert: Product rows and velocity inputs
+    Alert->>Alert: Find runway < 10 days
+    Alert->>Slack: Send Block Kit webhook payload
+    API-->>GA: JSON summary (queued / skipped / candidates)
+```
+
+---
+
 ## Running Inside Replit
 
 Two workflows are configured — they start automatically when you open the project.
