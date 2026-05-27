@@ -7,6 +7,9 @@ import {
   InventoryMetrics,
   DepletionBanner,
   LowStockTable,
+  SalesChart,
+  ReturnRates,
+  SupplierBuffers,
 } from "./components/dashboard";
 import { ErrorBanner } from "./components/ui";
 import { useDashboardData, usePagination, useDepletionProgress, useDisplayPrefs } from "./hooks";
@@ -50,6 +53,13 @@ export default function Dashboard() {
     );
   }
 
+  const kpi = dashboardSlice?.kpi_summary || {};
+  const salesForecast = dashboardSlice?.sales_forecast || {};
+  const inventoryRisk = dashboardSlice?.inventory_risk || {};
+  const reverseLogistics = dashboardSlice?.reverse_logistics_forecast || {};
+  const supplierBuffers = dashboardSlice?.supplier_drift_buffers || [];
+  const timeSeries = dashboardSlice?.time_series || salesForecast?.time_series || {};
+
   return (
     <div data-theme={theme}>
       <div className="forecast-page">
@@ -82,6 +92,26 @@ export default function Dashboard() {
             onPageChange={setPage}
             tableError={tableError}
           />
+        </div>
+
+        <div className="forecast-card">
+          <SalesChart
+            timeSeries={timeSeries}
+            projectedRevenue={salesForecast?.projected_revenue}
+            projectedProfit={salesForecast?.projected_profit}
+          />
+        </div>
+
+        <div className="forecast-card">
+          <ReturnRates
+            categories={reverseLogistics?.category_return_rates || dashboardSlice?.category_return_rates}
+            totalReturned={reverseLogistics?.total_returned_orders}
+            estimated30d={reverseLogistics?.estimated_return_volume_30d}
+          />
+        </div>
+
+        <div className="forecast-card">
+          <SupplierBuffers buffers={supplierBuffers} />
         </div>
       </div>
 

@@ -5,3 +5,6 @@ export { default as FinancialGrid } from "./FinancialGrid";
 export { default as InventoryMetrics } from "./InventoryMetrics";
 export { default as DepletionBanner } from "./DepletionBanner";
 export { default as LowStockTable } from "./LowStockTable";
+export { default as SalesChart } from "./SalesChart";
+export { default as ReturnRates } from "./ReturnRates";
+export { default as SupplierBuffers } from "./SupplierBuffers";

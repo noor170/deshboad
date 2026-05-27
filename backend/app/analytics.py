@@ -48,7 +48,9 @@ def export_operations_report(
     file_format: str = "csv",
 ) -> tuple[Path, str, str]:
     orders_df, inventory_df, marketing_df = _load_frames(db, start_date, end_date)
-    dashboard = _build_dashboard_payload(orders_df, inventory_df, marketing_df, start_date, end_date)
+    dashboard = _build_dashboard_payload(
+        orders_df, inventory_df, marketing_df, start_date, end_date
+    )
 
     summary_rows = []
     for item in dashboard["low_stock_products"]:
@@ -97,7 +99,11 @@ def export_operations_report(
             marketing_df.to_excel(writer, sheet_name="marketing_spend", index=False)
             kpi_rows.to_excel(writer, sheet_name="kpis", index=False)
             summary_df.to_excel(writer, sheet_name="alerts", index=False)
-        return output_path, output_path.name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        return (
+            output_path,
+            output_path.name,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
     output_path = tmp_dir / f"operations-summary-{safe_start}-to-{safe_end}.csv"
     csv_df = pd.concat(
@@ -171,7 +177,14 @@ def _load_frames(
 
     if orders_df.empty:
         orders_df = pd.DataFrame(
-            columns=["id", "product_id", "sale_amount", "quantity", "order_date", "is_returned"]
+            columns=[
+                "id",
+                "product_id",
+                "sale_amount",
+                "quantity",
+                "order_date",
+                "is_returned",
+            ]
         )
     if inventory_df.empty:
         inventory_df = pd.DataFrame(
@@ -205,12 +218,21 @@ def _build_dashboard_payload(
     page = max(int(page), 1)
 
     if inventory_df.empty:
-        return _empty_payload(start_date, end_date, limit=limit, offset=offset, page=page)
+        return _empty_payload(
+            start_date, end_date, limit=limit, offset=offset, page=page
+        )
 
     merged_orders = _build_orders_export_frame(orders_df, inventory_df)
     if merged_orders.empty:
         inventory_health = _build_inventory_health(
-            pd.DataFrame(columns=["product_id", "order_date", "daily_quantity", "sales_velocity_30d"]),
+            pd.DataFrame(
+                columns=[
+                    "product_id",
+                    "order_date",
+                    "daily_quantity",
+                    "sales_velocity_30d",
+                ]
+            ),
             inventory_df,
         )
         return {
@@ -221,7 +243,12 @@ def _build_dashboard_payload(
             "gross_revenue": 0.0,
             "net_profit": 0.0,
             "recognized_revenue": 0.0,
-            "ad_spend": round(float(marketing_df["ad_spend_amount"].sum()) if not marketing_df.empty else 0.0, 2),
+            "ad_spend": round(
+                float(marketing_df["ad_spend_amount"].sum())
+                if not marketing_df.empty
+                else 0.0,
+                2,
+            ),
             "warning_count": 0,
             "ltv_cac_ratio": 0.0,
             "ltv_cac_status": "warning",
@@ -234,7 +261,9 @@ def _build_dashboard_payload(
                     "category": row["category"],
                     "stock_level": int(row["stock_level"]),
                     "sales_velocity_30d": round(float(row["sales_velocity_30d"]), 2),
-                    "days_of_inventory_left": None if np.isinf(row["days_of_inventory_left"]) else round(float(row["days_of_inventory_left"]), 1),
+                    "days_of_inventory_left": None
+                    if np.isinf(row["days_of_inventory_left"])
+                    else round(float(row["days_of_inventory_left"]), 1),
                     "critical_reorder_alert": False,
                 }
                 for row in inventory_health.to_dict("records")
@@ -256,8 +285,12 @@ def _build_dashboard_payload(
     merged_orders["recognized_revenue"] = np.where(
         merged_orders["is_returned"], 0.0, merged_orders["sale_amount"]
     )
-    merged_orders["unit_cost_total"] = merged_orders["quantity"] * merged_orders["cost_price"]
-    merged_orders["shipping_total"] = merged_orders["quantity"] * merged_orders["shipping_cost_buffer"]
+    merged_orders["unit_cost_total"] = (
+        merged_orders["quantity"] * merged_orders["cost_price"]
+    )
+    merged_orders["shipping_total"] = (
+        merged_orders["quantity"] * merged_orders["shipping_cost_buffer"]
+    )
     merged_orders["gross_margin"] = (
         merged_orders["recognized_revenue"]
         - merged_orders["unit_cost_total"]
@@ -266,13 +299,19 @@ def _build_dashboard_payload(
 
     gross_revenue = float(merged_orders["sale_amount"].sum())
     recognized_revenue = float(merged_orders["recognized_revenue"].sum())
-    ad_spend = float(marketing_df["ad_spend_amount"].sum()) if not marketing_df.empty else 0.0
+    ad_spend = (
+        float(marketing_df["ad_spend_amount"].sum()) if not marketing_df.empty else 0.0
+    )
     net_profit = float(merged_orders["gross_margin"].sum() - ad_spend)
 
     daily_sales = _build_daily_sales(merged_orders)
     inventory_health = _build_inventory_health(daily_sales, inventory_df)
-    low_stock_products = inventory_health[inventory_health["critical_reorder_alert"]].copy()
-    low_stock_products.sort_values(["days_of_inventory_left", "stock_level"], inplace=True)
+    low_stock_products = inventory_health[
+        inventory_health["critical_reorder_alert"]
+    ].copy()
+    low_stock_products.sort_values(
+        ["days_of_inventory_left", "stock_level"], inplace=True
+    )
 
     category_return_rates = (
         merged_orders.groupby("category", dropna=False)
@@ -284,7 +323,11 @@ def _build_dashboard_payload(
     )
     category_return_rates["return_rate_pct"] = np.where(
         category_return_rates["total_orders"] > 0,
-        (category_return_rates["returned_orders"] / category_return_rates["total_orders"]) * 100,
+        (
+            category_return_rates["returned_orders"]
+            / category_return_rates["total_orders"]
+        )
+        * 100,
         0.0,
     )
     category_return_rates.sort_values("return_rate_pct", ascending=False, inplace=True)
@@ -300,11 +343,40 @@ def _build_dashboard_payload(
     estimated_cac = ad_spend / order_count if order_count and ad_spend > 0 else 0.0
     ltv_cac_ratio = blended_ltv / estimated_cac if estimated_cac > 0 else 0.0
 
-    paginated_category_return_rates = category_return_rates.iloc[offset : offset + limit]
+    paginated_category_return_rates = category_return_rates.iloc[
+        offset : offset + limit
+    ]
     paginated_low_stock_products = low_stock_products.iloc[offset : offset + limit]
-    paginated_inventory_health = (
-        inventory_health.sort_values("days_of_inventory_left").iloc[offset : offset + limit]
+    paginated_inventory_health = inventory_health.sort_values(
+        "days_of_inventory_left"
+    ).iloc[offset : offset + limit]
+
+    # --- Supplier drift buffer: dynamic safety stock per category ---
+    supplier_drift_buffers = (
+        merged_orders.groupby("category", dropna=False)
+        .agg(
+            avg_daily_demand=(
+                "quantity",
+                lambda s: (
+                    float(s.sum()) / max((merged_orders["order_date"].nunique()), 1)
+                ),
+            ),
+            demand_std=("quantity", "std"),
+            lead_time_mean=(
+                "order_date",
+                lambda d: float(d.dt.to_period("W").nunique()),
+            ),
+        )
+        .reset_index()
     )
+    supplier_drift_buffers["demand_std"] = supplier_drift_buffers["demand_std"].fillna(
+        0.0
+    )
+    supplier_drift_buffers["safety_stock_units"] = (
+        1.65
+        * supplier_drift_buffers["demand_std"]
+        * np.sqrt(supplier_drift_buffers["lead_time_mean"].clip(lower=1.0))
+    ).round(0)
 
     return {
         "date_range": {
@@ -319,6 +391,17 @@ def _build_dashboard_payload(
                 else _safe_date_string(merged_orders["order_date"].max())
             ),
         },
+        # --- KPI summary ---
+        "kpi_summary": {
+            "gross_revenue": round(gross_revenue, 2),
+            "net_profit": round(net_profit, 2),
+            "recognized_revenue": round(recognized_revenue, 2),
+            "ad_spend": round(ad_spend, 2),
+            "ltv_cac_ratio": round(ltv_cac_ratio, 2),
+            "ltv_cac_status": "warning" if ltv_cac_ratio < 3 else "healthy",
+            "warning_count": int(low_stock_products.shape[0]),
+            "average_order_value": round(average_order_value, 2),
+        },
         "gross_revenue": round(gross_revenue, 2),
         "net_profit": round(net_profit, 2),
         "recognized_revenue": round(recognized_revenue, 2),
@@ -326,15 +409,46 @@ def _build_dashboard_payload(
         "warning_count": int(low_stock_products.shape[0]),
         "ltv_cac_ratio": round(ltv_cac_ratio, 2),
         "ltv_cac_status": "warning" if ltv_cac_ratio < 3 else "healthy",
-        "category_return_rates": [
-            {
-                "category": row["category"],
-                "total_orders": int(row["total_orders"]),
-                "returned_orders": int(row["returned_orders"]),
-                "return_rate_pct": round(float(row["return_rate_pct"]), 2),
-            }
-            for row in paginated_category_return_rates.to_dict("records")
-        ],
+        # --- Sales forecast ---
+        "sales_forecast": {
+            "time_series": time_series,
+            "forecast_period": "next_30_days",
+            "projected_revenue": round(
+                float(time_series["gross_sales"][-1] * 4.3)
+                if time_series["gross_sales"]
+                else 0.0,
+                2,
+            ),
+            "projected_profit": round(
+                float(time_series["net_profit"][-1] * 4.3)
+                if time_series["net_profit"]
+                else 0.0,
+                2,
+            ),
+        },
+        "time_series": time_series,
+        # --- Inventory risk ---
+        "inventory_risk": {
+            "at_risk_count": int(low_stock_products.shape[0]),
+            "healthy_count": int(
+                inventory_health.shape[0] - low_stock_products.shape[0]
+            ),
+            "total_skus": int(inventory_health.shape[0]),
+            "low_stock_products": [
+                {
+                    "product_id": int(row["product_id"]),
+                    "product_name": row["product_name"],
+                    "category": row["category"],
+                    "stock_level": int(row["stock_level"]),
+                    "sales_velocity_30d": round(float(row["sales_velocity_30d"]), 2),
+                    "days_of_inventory_left": round(
+                        float(row["days_of_inventory_left"]), 1
+                    ),
+                    "critical_reorder_alert": bool(row["critical_reorder_alert"]),
+                }
+                for row in paginated_low_stock_products.to_dict("records")
+            ],
+        },
         "low_stock_products": [
             {
                 "product_id": int(row["product_id"]),
@@ -342,7 +456,9 @@ def _build_dashboard_payload(
                 "category": row["category"],
                 "stock_level": int(row["stock_level"]),
                 "sales_velocity_30d": round(float(row["sales_velocity_30d"]), 2),
-                "days_of_inventory_left": round(float(row["days_of_inventory_left"]), 1),
+                "days_of_inventory_left": round(
+                    float(row["days_of_inventory_left"]), 1
+                ),
                 "critical_reorder_alert": bool(row["critical_reorder_alert"]),
             }
             for row in paginated_low_stock_products.to_dict("records")
@@ -354,15 +470,57 @@ def _build_dashboard_payload(
                 "category": row["category"],
                 "stock_level": int(row["stock_level"]),
                 "sales_velocity_30d": round(float(row["sales_velocity_30d"]), 2),
-                "days_of_inventory_left": None if np.isinf(row["days_of_inventory_left"]) else round(float(row["days_of_inventory_left"]), 1),
+                "days_of_inventory_left": None
+                if np.isinf(row["days_of_inventory_left"])
+                else round(float(row["days_of_inventory_left"]), 1),
                 "critical_reorder_alert": bool(row["critical_reorder_alert"]),
             }
             for row in paginated_inventory_health.to_dict("records")
         ],
-        "time_series": time_series,
+        # --- Reverse logistics forecast ---
+        "reverse_logistics_forecast": {
+            "total_returned_orders": int(merged_orders["is_returned"].sum()),
+            "category_return_rates": [
+                {
+                    "category": row["category"],
+                    "total_orders": int(row["total_orders"]),
+                    "returned_orders": int(row["returned_orders"]),
+                    "return_rate_pct": round(float(row["return_rate_pct"]), 2),
+                }
+                for row in paginated_category_return_rates.to_dict("records")
+            ],
+            "estimated_return_volume_30d": round(
+                float(merged_orders["is_returned"].sum())
+                / max((merged_orders["order_date"].nunique()), 1)
+                * 30,
+                1,
+            ),
+        },
+        "category_return_rates": [
+            {
+                "category": row["category"],
+                "total_orders": int(row["total_orders"]),
+                "returned_orders": int(row["returned_orders"]),
+                "return_rate_pct": round(float(row["return_rate_pct"]), 2),
+            }
+            for row in paginated_category_return_rates.to_dict("records")
+        ],
+        # --- Supplier drift buffers ---
+        "supplier_drift_buffers": [
+            {
+                "category": row["category"],
+                "avg_daily_demand": round(float(row["avg_daily_demand"]), 2),
+                "demand_std": round(float(row["demand_std"]), 2),
+                "lead_time_weeks": int(max(row["lead_time_mean"], 1)),
+                "safety_stock_units": int(row["safety_stock_units"]),
+            }
+            for row in supplier_drift_buffers.to_dict("records")
+        ],
         "totals": {
             "orders": int(order_count),
-            "units_sold": int(merged_orders.loc[~merged_orders["is_returned"], "quantity"].sum()),
+            "units_sold": int(
+                merged_orders.loc[~merged_orders["is_returned"], "quantity"].sum()
+            ),
             "returned_orders": int(merged_orders["is_returned"].sum()),
         },
         "pagination": {
@@ -379,7 +537,9 @@ def _build_dashboard_payload(
     }
 
 
-def _build_orders_export_frame(orders_df: pd.DataFrame, inventory_df: pd.DataFrame) -> pd.DataFrame:
+def _build_orders_export_frame(
+    orders_df: pd.DataFrame, inventory_df: pd.DataFrame
+) -> pd.DataFrame:
     if orders_df.empty:
         return pd.DataFrame(
             columns=[
@@ -401,7 +561,9 @@ def _build_orders_export_frame(orders_df: pd.DataFrame, inventory_df: pd.DataFra
 
 def _build_daily_sales(merged_orders: pd.DataFrame) -> pd.DataFrame:
     if merged_orders.empty:
-        return pd.DataFrame(columns=["product_id", "order_date", "daily_quantity", "sales_velocity_30d"])
+        return pd.DataFrame(
+            columns=["product_id", "order_date", "daily_quantity", "sales_velocity_30d"]
+        )
 
     sales_only = merged_orders.loc[~merged_orders["is_returned"]].copy()
     daily_sales = (
@@ -410,14 +572,15 @@ def _build_daily_sales(merged_orders: pd.DataFrame) -> pd.DataFrame:
         .rename(columns={"quantity": "daily_quantity"})
         .sort_values(["product_id", "order_date"])
     )
-    daily_sales["sales_velocity_30d"] = (
-        daily_sales.groupby("product_id")["daily_quantity"]
-        .transform(lambda series: series.rolling(window=30, min_periods=1).sum() / 30.0)
-    )
+    daily_sales["sales_velocity_30d"] = daily_sales.groupby("product_id")[
+        "daily_quantity"
+    ].transform(lambda series: series.rolling(window=30, min_periods=1).sum() / 30.0)
     return daily_sales
 
 
-def _build_inventory_health(daily_sales: pd.DataFrame, inventory_df: pd.DataFrame) -> pd.DataFrame:
+def _build_inventory_health(
+    daily_sales: pd.DataFrame, inventory_df: pd.DataFrame
+) -> pd.DataFrame:
     latest_velocity = (
         daily_sales.sort_values(["product_id", "order_date"])
         .groupby("product_id", as_index=False)
@@ -426,7 +589,9 @@ def _build_inventory_health(daily_sales: pd.DataFrame, inventory_df: pd.DataFram
         else pd.DataFrame(columns=["product_id", "sales_velocity_30d"])
     )
     inventory_health = inventory_df.merge(latest_velocity, on="product_id", how="left")
-    inventory_health["sales_velocity_30d"] = inventory_health["sales_velocity_30d"].fillna(0.0)
+    inventory_health["sales_velocity_30d"] = inventory_health[
+        "sales_velocity_30d"
+    ].fillna(0.0)
     inventory_health["days_of_inventory_left"] = np.where(
         inventory_health["sales_velocity_30d"] > 0,
         inventory_health["stock_level"] / inventory_health["sales_velocity_30d"],
@@ -474,15 +639,23 @@ def _build_time_series(merged_orders: pd.DataFrame, marketing_df: pd.DataFrame) 
     )
 
     grouped = (
-        time_series.assign(period=time_series["order_date"].dt.to_period("W").dt.start_time.dt.strftime("%b %d"))
+        time_series.assign(
+            period=time_series["order_date"]
+            .dt.to_period("W")
+            .dt.start_time.dt.strftime("%b %d")
+        )
         .groupby("period", as_index=False)[["gross_sales", "net_profit"]]
         .sum()
     )
 
     return {
         "labels": grouped["period"].tolist(),
-        "gross_sales": [round(float(value), 2) for value in grouped["gross_sales"].tolist()],
-        "net_profit": [round(float(value), 2) for value in grouped["net_profit"].tolist()],
+        "gross_sales": [
+            round(float(value), 2) for value in grouped["gross_sales"].tolist()
+        ],
+        "net_profit": [
+            round(float(value), 2) for value in grouped["net_profit"].tolist()
+        ],
     }
 
 
@@ -523,7 +696,9 @@ def _empty_payload(
         "time_series": {"labels": [], "gross_sales": [], "net_profit": []},
         "totals": {"orders": 0, "units_sold": 0, "returned_orders": 0},
         "pagination": {
-            **_build_pagination_meta(total_items=0, limit=limit, offset=offset, page=page),
+            **_build_pagination_meta(
+                total_items=0, limit=limit, offset=offset, page=page
+            ),
             "inventory_total": 0,
             "low_stock_total": 0,
             "category_total": 0,
@@ -531,7 +706,9 @@ def _empty_payload(
     }
 
 
-def _build_pagination_meta(total_items: int, limit: int, offset: int, page: int) -> dict:
+def _build_pagination_meta(
+    total_items: int, limit: int, offset: int, page: int
+) -> dict:
     total_items = max(int(total_items), 0)
     limit = max(int(limit), 1)
     offset = max(int(offset), 0)
@@ -553,11 +730,15 @@ def _build_pagination_meta(total_items: int, limit: int, offset: int, page: int)
         "next_page": page + 1 if has_next else None,
         "previous_page": page - 1 if has_previous else None,
         "next_cursor": str(next_offset) if next_offset is not None else None,
-        "previous_cursor": str(previous_offset) if previous_offset is not None else None,
+        "previous_cursor": str(previous_offset)
+        if previous_offset is not None
+        else None,
     }
 
 
-def forecast_inventory_depletion(sales_rows: list[dict], current_stock: int | float) -> dict:
+def forecast_inventory_depletion(
+    sales_rows: list[dict], current_stock: int | float
+) -> dict:
     """
     Build a forecasting payload for a single SKU.
 
@@ -573,7 +754,9 @@ def forecast_inventory_depletion(sales_rows: list[dict], current_stock: int | fl
     - quantity field: quantity, units_sold, qty
     """
     if LinearRegression is None:
-        raise RuntimeError("scikit-learn is required for forecast_inventory_depletion().")
+        raise RuntimeError(
+            "scikit-learn is required for forecast_inventory_depletion()."
+        )
 
     current_stock = max(float(current_stock or 0), 0.0)
     history_df = _prepare_forecast_history_frame(sales_rows)
@@ -613,7 +796,11 @@ def forecast_inventory_depletion(sales_rows: list[dict], current_stock: int | fl
 
         slope = float(regression.coef_[0])
         projected_velocity = max(
-            float(regression.predict(np.array([[len(history_df.index) - 1]], dtype=float))[0]),
+            float(
+                regression.predict(
+                    np.array([[len(history_df.index) - 1]], dtype=float)
+                )[0]
+            ),
             0.0,
         )
 
@@ -661,7 +848,9 @@ def build_inventory_forecast(db: Session, product_id: int | None = None) -> dict
 
     forecast_target = None
     if product_id is not None:
-        forecast_target = next((row for row in inventory_rows if row.product_id == product_id), None)
+        forecast_target = next(
+            (row for row in inventory_rows if row.product_id == product_id), None
+        )
 
     if forecast_target is None:
         orders_df = _load_product_orders_frame(db)
@@ -680,9 +869,13 @@ def build_inventory_forecast(db: Session, product_id: int | None = None) -> dict
         )
         daily_sales = _build_daily_sales(orders_df)
         inventory_health = _build_inventory_health(daily_sales, inventory_df)
-        inventory_health.sort_values(["days_of_inventory_left", "stock_level"], inplace=True)
+        inventory_health.sort_values(
+            ["days_of_inventory_left", "stock_level"], inplace=True
+        )
         target_product_id = int(inventory_health.iloc[0]["product_id"])
-        forecast_target = next(row for row in inventory_rows if row.product_id == target_product_id)
+        forecast_target = next(
+            row for row in inventory_rows if row.product_id == target_product_id
+        )
 
     sales_rows = db.execute(
         select(Order.order_date, Order.quantity)
@@ -693,7 +886,9 @@ def build_inventory_forecast(db: Session, product_id: int | None = None) -> dict
 
     formatted_rows = [
         {
-            "sales_date": order_date.isoformat() if isinstance(order_date, date) else str(order_date),
+            "sales_date": order_date.isoformat()
+            if isinstance(order_date, date)
+            else str(order_date),
             "quantity": quantity,
         }
         for order_date, quantity in sales_rows
@@ -714,11 +909,19 @@ def _prepare_forecast_history_frame(sales_rows: list[dict]) -> pd.DataFrame:
 
     frame = pd.DataFrame(sales_rows)
     date_column = next(
-        (column for column in ("sales_date", "order_date", "date") if column in frame.columns),
+        (
+            column
+            for column in ("sales_date", "order_date", "date")
+            if column in frame.columns
+        ),
         None,
     )
     quantity_column = next(
-        (column for column in ("quantity", "units_sold", "qty") if column in frame.columns),
+        (
+            column
+            for column in ("quantity", "units_sold", "qty")
+            if column in frame.columns
+        ),
         None,
     )
 
@@ -728,7 +931,9 @@ def _prepare_forecast_history_frame(sales_rows: list[dict]) -> pd.DataFrame:
     history_df = frame[[date_column, quantity_column]].copy()
     history_df.columns = ["sales_date", "daily_quantity"]
     history_df["sales_date"] = pd.to_datetime(history_df["sales_date"], errors="coerce")
-    history_df["daily_quantity"] = pd.to_numeric(history_df["daily_quantity"], errors="coerce").fillna(0.0)
+    history_df["daily_quantity"] = pd.to_numeric(
+        history_df["daily_quantity"], errors="coerce"
+    ).fillna(0.0)
     history_df.dropna(subset=["sales_date"], inplace=True)
 
     if history_df.empty:
@@ -756,10 +961,19 @@ def _prepare_forecast_history_frame(sales_rows: list[dict]) -> pd.DataFrame:
 
 
 def _load_product_orders_frame(db: Session) -> pd.DataFrame:
-    orders = db.execute(select(Order).where(Order.is_returned.is_(False))).scalars().all()
+    orders = (
+        db.execute(select(Order).where(Order.is_returned.is_(False))).scalars().all()
+    )
     if not orders:
         return pd.DataFrame(
-            columns=["id", "product_id", "sale_amount", "quantity", "order_date", "is_returned"]
+            columns=[
+                "id",
+                "product_id",
+                "sale_amount",
+                "quantity",
+                "order_date",
+                "is_returned",
+            ]
         )
 
     return pd.DataFrame(
@@ -778,8 +992,12 @@ def _load_product_orders_frame(db: Session) -> pd.DataFrame:
 
 
 def _compute_fallback_velocity(velocity_series: pd.Series) -> float:
-    rolling_window_average = float(velocity_series.tail(7).mean()) if not velocity_series.empty else 0.0
-    full_window_average = float(velocity_series.mean()) if not velocity_series.empty else 0.0
+    rolling_window_average = (
+        float(velocity_series.tail(7).mean()) if not velocity_series.empty else 0.0
+    )
+    full_window_average = (
+        float(velocity_series.mean()) if not velocity_series.empty else 0.0
+    )
     fallback_velocity = max(rolling_window_average, full_window_average, 0.01)
     return fallback_velocity
 
