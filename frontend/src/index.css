@@ -841,6 +841,36 @@ input {
   gap: 20px;
 }
 
+.forecast-section-navbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.forecast-section-tab {
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.forecast-section-tab:hover {
+  border-color: var(--primary-border);
+  color: var(--text);
+}
+
+.forecast-section-tab-active {
+  background: var(--primary-bg);
+  border-color: var(--primary-border);
+  color: var(--primary-text);
+}
+
 /* ================================================================
    FORECAST PANELS
    ================================================================ */

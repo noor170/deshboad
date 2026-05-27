@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  HomeWorkspace,
   GlobalControls,
   ForecastSkeleton,
   ForecastHeader,
@@ -8,14 +9,12 @@ import {
   InventoryMetrics,
   DepletionBanner,
   LowStockTable,
-  SalesChart,
-  ReturnRates,
-  SupplierBuffers,
 } from "./components/dashboard";
 import { ErrorBanner } from "./components/ui";
 import { useDashboardData, usePagination, useDepletionProgress, useDisplayPrefs, useForecastData } from "./hooks";
 
 const VIEW_TABS = [
+  { id: "home", label: "Home", icon: "🏠" },
   { id: "operations", label: "Operations Dashboard", icon: "📊" },
   { id: "forecast", label: "AI Forecasting", icon: "🤖" },
 ];
@@ -25,7 +24,7 @@ export default function Dashboard() {
   const [baseCurrency, setBaseCurrency] = useState("USD");
   const [operationalTimezone, setOperationalTimezone] = useState("UTC");
   const [page, setPage] = useState(1);
-  const [view, setView] = useState("operations");
+  const [view, setView] = useState("home");
 
   const displayPrefs = useDisplayPrefs(baseCurrency, operationalTimezone);
   const { forecast, dashboardSlice, loading, error, tableError } = useDashboardData(page);
@@ -83,6 +82,10 @@ export default function Dashboard() {
     <div data-theme={theme}>
       <DashboardHeader theme={theme} view={view} onViewChange={setView} />
 
+      {view === "home" && (
+        <HomeWorkspace dashboardSlice={dashboardSlice} forecast={forecast} />
+      )}
+
       {/* ==================== OPERATIONS VIEW ==================== */}
       {view === "operations" && (
         <div className="forecast-page">
@@ -112,30 +115,18 @@ export default function Dashboard() {
             />
           </div>
 
-          <div className="forecast-card">
-            <SalesChart
-              timeSeries={timeSeries}
-              projectedRevenue={salesFc?.projected_revenue}
-            />
-          </div>
-
-          <div className="forecast-card">
-            <ReturnRates
-              categories={reverseLogistics?.category_return_rates || dashboardSlice?.category_return_rates}
-              totalReturned={reverseLogistics?.total_returned_orders}
-              estimated30d={reverseLogistics?.estimated_return_volume_30d}
-            />
-          </div>
-
-          <div className="forecast-card">
-            <SupplierBuffers buffers={supplierBuffers} />
-          </div>
         </div>
       )}
 
       {/* ==================== AI FORECAST VIEW ==================== */}
       {view === "forecast" && (
         <ForecastView
+          timeSeries={timeSeries}
+          projectedRevenue={salesFc?.projected_revenue}
+          categories={reverseLogistics?.category_return_rates || dashboardSlice?.category_return_rates}
+          totalReturned={reverseLogistics?.total_returned_orders}
+          estimated30d={reverseLogistics?.estimated_return_volume_30d}
+          supplierBuffers={supplierBuffers}
           salesForecast={salesForecast}
           returnForecast={returnForecast}
           safetyStock={safetyStock}
