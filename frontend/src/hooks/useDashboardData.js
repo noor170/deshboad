@@ -16,7 +16,7 @@ async function parseJson(response) {
   return response.json();
 }
 
-export function useDashboardData(page) {
+export function useDashboardData(page, refreshTick = 0) {
   const [forecast, setForecast] = useState(null);
   const [dashboardSlice, setDashboardSlice] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -69,7 +69,7 @@ export function useDashboardData(page) {
     return () => {
       active = false;
     };
-  }, [page]);
+  }, [page, refreshTick]);
 
   return { forecast, dashboardSlice, loading, error, tableError };
 }

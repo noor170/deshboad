@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { decimal } from "../../constants/utils";
+import CSVImporter from "./CSVImporter";
 
 function formatDateForInput(dateValue) {
   if (!dateValue) return "";
@@ -14,7 +15,7 @@ function formatDateSlash(dateValue) {
   return date.toLocaleDateString("en-GB");
 }
 
-export default function HomeWorkspace({ dashboardSlice, forecast }) {
+export default function HomeWorkspace({ dashboardSlice, forecast, onInventoryImported }) {
   const [adSpendShift, setAdSpendShift] = useState(0);
   const [cogsShift, setCogsShift] = useState(0);
   const [priceShift, setPriceShift] = useState(0);
@@ -253,6 +254,8 @@ export default function HomeWorkspace({ dashboardSlice, forecast }) {
             </div>
           </div>
         </section>
+
+        <CSVImporter onImportSuccess={onInventoryImported} />
 
         <section className="panel">
           <div className="subpanel-header">

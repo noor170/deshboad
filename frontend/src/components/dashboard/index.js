@@ -10,4 +10,5 @@ export { default as SalesChart } from "./SalesChart";
 export { default as ReturnRates } from "./ReturnRates";
 export { default as SupplierBuffers } from "./SupplierBuffers";
 export { default as ForecastView } from "./ForecastView";
+export { default as CSVImporter } from "./CSVImporter";
 export { SalesForecastPanel, ReturnForecastPanel, SafetyStockPanel } from "./ForecastPanel";

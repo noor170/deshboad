@@ -4,6 +4,7 @@ export const DASHBOARD_ENDPOINT = `${API_BASE}/api/v1/operations/dashboard`;
 export const SALES_FORECAST_ENDPOINT = `${API_BASE}/api/v1/forecast/sales`;
 export const RETURN_FORECAST_ENDPOINT = `${API_BASE}/api/v1/forecast/returns`;
 export const SAFETY_STOCK_ENDPOINT = `${API_BASE}/api/v1/forecast/safety-stock`;
+export const INVENTORY_IMPORT_ENDPOINT = `${API_BASE}/api/v1/operations/import-inventory`;
 export const PAGE_SIZE = 5;
 export const SOURCE_CURRENCY = "USD";
 

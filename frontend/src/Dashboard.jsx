@@ -25,9 +25,10 @@ export default function Dashboard() {
   const [operationalTimezone, setOperationalTimezone] = useState("UTC");
   const [page, setPage] = useState(1);
   const [view, setView] = useState("home");
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const displayPrefs = useDisplayPrefs(baseCurrency, operationalTimezone);
-  const { forecast, dashboardSlice, loading, error, tableError } = useDashboardData(page);
+  const { forecast, dashboardSlice, loading, error, tableError } = useDashboardData(page, refreshTick);
   const { salesForecast, returnForecast, safetyStock, loading: forecastLoading } = useForecastData(view === "forecast");
   const pagination = usePagination(dashboardSlice);
   const depletionProgress = useDepletionProgress(forecast);
@@ -43,6 +44,10 @@ export default function Dashboard() {
 
   const handleThemeToggle = () => {
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  };
+
+  const handleInventoryImported = () => {
+    setRefreshTick((prev) => prev + 1);
   };
 
   /* ---------- loading state ---------- */
@@ -83,7 +88,11 @@ export default function Dashboard() {
       <DashboardHeader theme={theme} view={view} onViewChange={setView} />
 
       {view === "home" && (
-        <HomeWorkspace dashboardSlice={dashboardSlice} forecast={forecast} />
+        <HomeWorkspace
+          dashboardSlice={dashboardSlice}
+          forecast={forecast}
+          onInventoryImported={handleInventoryImported}
+        />
       )}
 
       {/* ==================== OPERATIONS VIEW ==================== */}
