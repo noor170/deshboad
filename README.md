@@ -82,6 +82,36 @@ workspace/
 
 ---
 
+## How Data Flows Through This Project
+
+When a user opens the dashboard, the request path moves through the project in this order:
+
+```text
+[Browser / frontend/src/Dashboard.jsx]
+        |
+        v  (HTTP request to FastAPI)
+[backend/app/main.py] (API route handler)
+        |
+        v  (loads operational records)
+[backend/app/database.py] <----> [SQLite / MySQL Database]
+        |
+        v  (computes metrics, summaries, and exports)
+[backend/app/analytics.py] (Pandas / NumPy)
+        |
+        v  (JSON response / export file response)
+[Returned to the React dashboard UI]
+```
+
+In practice:
+
+1. The React dashboard in [frontend/src/Dashboard.jsx](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/frontend/src/Dashboard.jsx) requests operational data from the backend API.
+2. FastAPI routes in [backend/app/main.py](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/backend/app/main.py) receive the request and open a database session.
+3. Database configuration and SQLAlchemy models in [backend/app/database.py](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/backend/app/database.py) connect to SQLite locally or MySQL in deployed environments.
+4. The analytics layer in [backend/app/analytics.py](/Users/macbookairm1/Documents/GitHub/LuminousLikelyVerification/backend/app/analytics.py) transforms raw orders, inventory, and marketing data into dashboard metrics, inventory risk signals, and exportable reports.
+5. The backend returns structured JSON or a downloadable file, and the frontend renders the result into the dashboard interface.
+
+---
+
 ## Running Inside Replit
 
 Two workflows are configured — they start automatically when you open the project.
