@@ -18,8 +18,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Knock on Vercel API Door
+      - name: Trigger Low-Stock Slack Alert
         run: |
           curl -X POST "${{ secrets.ALERT_ENDPOINT_URL }}" \
             -H "X-Alert-Token: ${{ secrets.SLACK_ALERT_TOKEN }}" \
-            -H "Content-Type: application/json"
+            -H "Content-Type: application/json" \
+            -d '{"text": "Low stock alert!"}'
+
+      - name: Test Network Connectivity
+        run: |
+          ping -c 3 google.com
+          curl -I https://deshboad-gules.vercel.app/
+          
+          
+          # Replace with actual domain to test handshake
+
