@@ -24,9 +24,19 @@ def compute_dashboard_metrics(
     db: Session,
     start_date: date | None = None,
     end_date: date | None = None,
+    limit: int = 25,
+    offset: int = 0,
 ) -> dict:
     orders_df, inventory_df, marketing_df = _load_frames(db, start_date, end_date)
-    return _build_dashboard_payload(orders_df, inventory_df, marketing_df, start_date, end_date)
+    return _build_dashboard_payload(
+        orders_df,
+        inventory_df,
+        marketing_df,
+        start_date,
+        end_date,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def export_operations_report(
@@ -184,9 +194,14 @@ def _build_dashboard_payload(
     marketing_df: pd.DataFrame,
     start_date: date | None,
     end_date: date | None,
+    limit: int = 25,
+    offset: int = 0,
 ) -> dict:
+    limit = max(int(limit), 1)
+    offset = max(int(offset), 0)
+
     if inventory_df.empty:
-        return _empty_payload(start_date, end_date)
+        return _empty_payload(start_date, end_date, limit=limit, offset=offset)
 
     merged_orders = _build_orders_export_frame(orders_df, inventory_df)
     if merged_orders.empty:
@@ -222,6 +237,13 @@ def _build_dashboard_payload(
             ],
             "time_series": {"labels": [], "gross_sales": [], "net_profit": []},
             "totals": {"orders": 0, "units_sold": 0, "returned_orders": 0},
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "inventory_total": int(inventory_health.shape[0]),
+                "low_stock_total": 0,
+                "category_total": 0,
+            },
         }
     merged_orders["recognized_revenue"] = np.where(
         merged_orders["is_returned"], 0.0, merged_orders["sale_amount"]
@@ -257,6 +279,7 @@ def _build_dashboard_payload(
         (category_return_rates["returned_orders"] / category_return_rates["total_orders"]) * 100,
         0.0,
     )
+    category_return_rates.sort_values("return_rate_pct", ascending=False, inplace=True)
 
     time_series = _build_time_series(merged_orders, marketing_df)
 
@@ -268,6 +291,12 @@ def _build_dashboard_payload(
     blended_ltv = average_order_value * (1 + min(repeat_purchase_factor, 2.5))
     estimated_cac = ad_spend / order_count if order_count and ad_spend > 0 else 0.0
     ltv_cac_ratio = blended_ltv / estimated_cac if estimated_cac > 0 else 0.0
+
+    paginated_category_return_rates = category_return_rates.iloc[offset : offset + limit]
+    paginated_low_stock_products = low_stock_products.iloc[offset : offset + limit]
+    paginated_inventory_health = (
+        inventory_health.sort_values("days_of_inventory_left").iloc[offset : offset + limit]
+    )
 
     return {
         "date_range": {
@@ -296,7 +325,7 @@ def _build_dashboard_payload(
                 "returned_orders": int(row["returned_orders"]),
                 "return_rate_pct": round(float(row["return_rate_pct"]), 2),
             }
-            for row in category_return_rates.sort_values("return_rate_pct", ascending=False).to_dict("records")
+            for row in paginated_category_return_rates.to_dict("records")
         ],
         "low_stock_products": [
             {
@@ -308,7 +337,7 @@ def _build_dashboard_payload(
                 "days_of_inventory_left": round(float(row["days_of_inventory_left"]), 1),
                 "critical_reorder_alert": bool(row["critical_reorder_alert"]),
             }
-            for row in low_stock_products.to_dict("records")
+            for row in paginated_low_stock_products.to_dict("records")
         ],
         "inventory_overview": [
             {
@@ -320,13 +349,20 @@ def _build_dashboard_payload(
                 "days_of_inventory_left": None if np.isinf(row["days_of_inventory_left"]) else round(float(row["days_of_inventory_left"]), 1),
                 "critical_reorder_alert": bool(row["critical_reorder_alert"]),
             }
-            for row in inventory_health.sort_values("days_of_inventory_left").to_dict("records")
+            for row in paginated_inventory_health.to_dict("records")
         ],
         "time_series": time_series,
         "totals": {
             "orders": int(order_count),
             "units_sold": int(merged_orders.loc[~merged_orders["is_returned"], "quantity"].sum()),
             "returned_orders": int(merged_orders["is_returned"].sum()),
+        },
+        "pagination": {
+            "limit": limit,
+            "offset": offset,
+            "inventory_total": int(inventory_health.shape[0]),
+            "low_stock_total": int(low_stock_products.shape[0]),
+            "category_total": int(category_return_rates.shape[0]),
         },
     }
 
@@ -450,7 +486,7 @@ def _safe_date_string(value) -> str | None:
     return str(value)
 
 
-def _empty_payload(start_date: date | None, end_date: date | None) -> dict:
+def _empty_payload(start_date: date | None, end_date: date | None, limit: int = 25, offset: int = 0) -> dict:
     return {
         "date_range": {
             "start_date": start_date.isoformat() if start_date else None,
@@ -468,6 +504,13 @@ def _empty_payload(start_date: date | None, end_date: date | None) -> dict:
         "inventory_overview": [],
         "time_series": {"labels": [], "gross_sales": [], "net_profit": []},
         "totals": {"orders": 0, "units_sold": 0, "returned_orders": 0},
+        "pagination": {
+            "limit": limit,
+            "offset": offset,
+            "inventory_total": 0,
+            "low_stock_total": 0,
+            "category_total": 0,
+        },
     }
 
 

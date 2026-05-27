@@ -68,10 +68,18 @@ def health():
 def get_dashboard(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
+    limit: int = Query(default=25, ge=1, le=250),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
     try:
-        metrics = compute_dashboard_metrics(db, start_date=start_date, end_date=end_date)
+        metrics = compute_dashboard_metrics(
+            db,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            offset=offset,
+        )
         return {"success": True, "data": metrics}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

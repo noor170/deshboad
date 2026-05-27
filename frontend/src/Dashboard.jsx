@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "/_/backend" : "");
 const FORECAST_ENDPOINT = `${API_BASE}/api/v1/forecast/inventory`;
+const DASHBOARD_ENDPOINT = `${API_BASE}/api/v1/operations/dashboard`;
+const PAGE_SIZE = 5;
 
 const fallbackForecast = {
   product_id: 101,
@@ -73,32 +75,61 @@ function ForecastMetric({ label, value, helper }) {
 
 export default function Dashboard() {
   const [forecast, setForecast] = useState(null);
+  const [dashboardSlice, setDashboardSlice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [tableError, setTableError] = useState("");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let active = true;
 
-    async function loadForecast() {
+    async function loadData() {
       setLoading(true);
       setError("");
+      setTableError("");
 
       try {
-        const response = await fetch(FORECAST_ENDPOINT, {
-          headers: { Accept: "application/json" },
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        const offset = (page - 1) * PAGE_SIZE;
+        const [forecastResponse, dashboardResponse] = await Promise.all([
+          fetch(FORECAST_ENDPOINT, {
+            headers: { Accept: "application/json" },
+          }),
+          fetch(`${DASHBOARD_ENDPOINT}?limit=${PAGE_SIZE}&offset=${offset}`, {
+            headers: { Accept: "application/json" },
+          }),
+        ]);
+
+        if (!forecastResponse.ok) {
+          throw new Error(`Forecast HTTP ${forecastResponse.status}`);
+        }
+        if (!dashboardResponse.ok) {
+          throw new Error(`Dashboard HTTP ${dashboardResponse.status}`);
         }
 
-        const payload = await parseJson(response);
+        const [forecastPayload, dashboardPayload] = await Promise.all([
+          parseJson(forecastResponse),
+          parseJson(dashboardResponse),
+        ]);
+
         if (active) {
-          setForecast(payload.data);
+          setForecast(forecastPayload.data);
+          setDashboardSlice(dashboardPayload.data);
         }
       } catch (requestError) {
         if (active) {
           setForecast(fallbackForecast);
-          setError(requestError instanceof Error ? requestError.message : "Unable to load forecast.");
+          setDashboardSlice({
+            low_stock_products: [],
+            pagination: {
+              limit: PAGE_SIZE,
+              offset: (page - 1) * PAGE_SIZE,
+              low_stock_total: 0,
+            },
+          });
+          const message = requestError instanceof Error ? requestError.message : "Unable to load data.";
+          setError(message);
+          setTableError(message);
         }
       } finally {
         if (active) {
@@ -107,16 +138,21 @@ export default function Dashboard() {
       }
     }
 
-    loadForecast();
+    loadData();
     return () => {
       active = false;
     };
-  }, []);
+  }, [page]);
 
   const depletionProgress = useMemo(() => {
     if (!forecast) return 0;
     return Math.max(8, Math.min(100, (forecast.predicted_days_left / 30) * 100));
   }, [forecast]);
+
+  const totalPages = useMemo(() => {
+    const total = dashboardSlice?.pagination?.low_stock_total || 0;
+    return Math.max(1, Math.ceil(total / PAGE_SIZE));
+  }, [dashboardSlice]);
 
   if (loading) {
     return <ForecastSkeleton />;
@@ -198,6 +234,68 @@ export default function Dashboard() {
             Using fallback forecast data because the live request failed: {error}
           </div>
         ) : null}
+
+        <div className="forecast-table-panel">
+          <div className="forecast-table-header">
+            <div>
+              <p className="forecast-kicker">Low-Stock Queue</p>
+              <h2>Server-side paginated inventory alerts</h2>
+            </div>
+            <div className="forecast-pagination-meta">
+              Page {page} of {totalPages}
+            </div>
+          </div>
+
+          <div className="forecast-table-wrap">
+            <table className="forecast-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Velocity</th>
+                  <th>Days Left</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dashboardSlice?.low_stock_products?.length ? (
+                  dashboardSlice.low_stock_products.map((item) => (
+                    <tr key={item.product_id}>
+                      <td>{item.product_name}</td>
+                      <td>{item.category}</td>
+                      <td>{decimal(item.sales_velocity_30d)} / day</td>
+                      <td>{decimal(item.days_of_inventory_left)} days</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="4" className="forecast-table-empty">
+                      {tableError || "No low-stock products returned for this page."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="forecast-pagination">
+            <button
+              type="button"
+              className="forecast-page-button"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={page <= 1}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="forecast-page-button"
+              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              disabled={page >= totalPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
