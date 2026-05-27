@@ -4,6 +4,7 @@ const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "/_/bac
 const FORECAST_ENDPOINT = `${API_BASE}/api/v1/forecast/inventory`;
 const DASHBOARD_ENDPOINT = `${API_BASE}/api/v1/operations/dashboard`;
 const PAGE_SIZE = 5;
+const SOURCE_CURRENCY = "USD";
 
 const fallbackForecast = {
   product_id: 101,
@@ -73,7 +74,17 @@ function ForecastMetric({ label, value, helper }) {
   );
 }
 
-export default function Dashboard() {
+function FinancialMetric({ label, value, helper }) {
+  return (
+    <div className="forecast-financial-card">
+      <span className="forecast-metric-label">{label}</span>
+      <strong className="forecast-financial-value">{value}</strong>
+      <span className="forecast-metric-helper">{helper}</span>
+    </div>
+  );
+}
+
+export default function Dashboard({ displayPrefs }) {
   const [forecast, setForecast] = useState(null);
   const [dashboardSlice, setDashboardSlice] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -154,6 +165,16 @@ export default function Dashboard() {
     return Math.max(1, Math.ceil(total / PAGE_SIZE));
   }, [dashboardSlice]);
 
+  const normalizedDateRange = useMemo(() => {
+    if (!dashboardSlice?.date_range?.start_date || !dashboardSlice?.date_range?.end_date) {
+      return "Date range unavailable";
+    }
+
+    return `${displayPrefs.formatDate(dashboardSlice.date_range.start_date)} to ${displayPrefs.formatDate(
+      dashboardSlice.date_range.end_date
+    )}`;
+  }, [dashboardSlice, displayPrefs]);
+
   if (loading) {
     return <ForecastSkeleton />;
   }
@@ -184,10 +205,33 @@ export default function Dashboard() {
               Real-time inventory depletion estimate powered by historical order data and a
               scikit-learn linear regression slope.
             </p>
+            <div className="forecast-normalization-meta">
+              <span>{normalizedDateRange}</span>
+              <span>Reporting in {displayPrefs.baseCurrency}</span>
+              <span>Timezone {displayPrefs.operationalTimezone}</span>
+            </div>
           </div>
           <div className={`forecast-strategy forecast-${tone}`}>
             {forecast.forecast_strategy.replaceAll("_", " ")}
           </div>
+        </div>
+
+        <div className="forecast-financial-grid">
+          <FinancialMetric
+            label="Gross Revenue"
+            value={displayPrefs.formatMoney(dashboardSlice?.gross_revenue ?? 0, SOURCE_CURRENCY)}
+            helper={`${dashboardSlice?.totals?.orders ?? 0} orders normalized from ${SOURCE_CURRENCY}`}
+          />
+          <FinancialMetric
+            label="Net Profit"
+            value={displayPrefs.formatMoney(dashboardSlice?.net_profit ?? 0, SOURCE_CURRENCY)}
+            helper={`${dashboardSlice?.totals?.units_sold ?? 0} units sold in the selected window`}
+          />
+          <FinancialMetric
+            label="Ad Spend"
+            value={displayPrefs.formatMoney(dashboardSlice?.ad_spend ?? 0, SOURCE_CURRENCY)}
+            helper={`LTV:CAC ${decimal(dashboardSlice?.ltv_cac_ratio ?? 0, 2)}:1`}
+          />
         </div>
 
         <div className="forecast-grid">
@@ -267,7 +311,7 @@ export default function Dashboard() {
                     </tr>
                   ))
                 ) : (
-                  <tr>
+                    <tr>
                     <td colSpan="4" className="forecast-table-empty">
                       {tableError || "No low-stock products returned for this page."}
                     </td>
