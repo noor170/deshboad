@@ -563,6 +563,65 @@ def forecast_inventory_depletion(sales_rows: list[dict], current_stock: int | fl
     }
 
 
+def build_inventory_forecast(db: Session, product_id: int | None = None) -> dict:
+    inventory_rows = db.execute(select(Inventory)).scalars().all()
+    if not inventory_rows:
+        return {
+            "product_id": None,
+            "product_name": "No inventory loaded",
+            "category": "Unavailable",
+            **forecast_inventory_depletion([], 0),
+        }
+
+    forecast_target = None
+    if product_id is not None:
+        forecast_target = next((row for row in inventory_rows if row.product_id == product_id), None)
+
+    if forecast_target is None:
+        orders_df = _load_product_orders_frame(db)
+        inventory_df = pd.DataFrame(
+            [
+                {
+                    "product_id": row.product_id,
+                    "product_name": row.product_name,
+                    "category": row.category,
+                    "stock_level": row.stock_level,
+                    "cost_price": row.cost_price,
+                    "shipping_cost_buffer": row.shipping_cost_buffer,
+                }
+                for row in inventory_rows
+            ]
+        )
+        daily_sales = _build_daily_sales(orders_df)
+        inventory_health = _build_inventory_health(daily_sales, inventory_df)
+        inventory_health.sort_values(["days_of_inventory_left", "stock_level"], inplace=True)
+        target_product_id = int(inventory_health.iloc[0]["product_id"])
+        forecast_target = next(row for row in inventory_rows if row.product_id == target_product_id)
+
+    sales_rows = db.execute(
+        select(Order.order_date, Order.quantity)
+        .where(Order.product_id == forecast_target.product_id)
+        .where(Order.is_returned.is_(False))
+        .order_by(Order.order_date.asc())
+    ).all()
+
+    formatted_rows = [
+        {
+            "sales_date": order_date.isoformat() if isinstance(order_date, date) else str(order_date),
+            "quantity": quantity,
+        }
+        for order_date, quantity in sales_rows
+    ]
+
+    forecast = forecast_inventory_depletion(formatted_rows, forecast_target.stock_level)
+    return {
+        "product_id": forecast_target.product_id,
+        "product_name": forecast_target.product_name,
+        "category": forecast_target.category,
+        **forecast,
+    }
+
+
 def _prepare_forecast_history_frame(sales_rows: list[dict]) -> pd.DataFrame:
     if not sales_rows:
         return pd.DataFrame(columns=["sales_date", "daily_quantity"])
@@ -608,6 +667,28 @@ def _prepare_forecast_history_frame(sales_rows: list[dict]) -> pd.DataFrame:
         .reset_index()
     )
     return history_df
+
+
+def _load_product_orders_frame(db: Session) -> pd.DataFrame:
+    orders = db.execute(select(Order).where(Order.is_returned.is_(False))).scalars().all()
+    if not orders:
+        return pd.DataFrame(
+            columns=["id", "product_id", "sale_amount", "quantity", "order_date", "is_returned"]
+        )
+
+    return pd.DataFrame(
+        [
+            {
+                "id": row.id,
+                "product_id": row.product_id,
+                "sale_amount": row.sale_amount,
+                "quantity": row.quantity,
+                "order_date": pd.to_datetime(row.order_date),
+                "is_returned": bool(row.is_returned),
+            }
+            for row in orders
+        ]
+    )
 
 
 def _compute_fallback_velocity(velocity_series: pd.Series) -> float:

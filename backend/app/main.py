@@ -10,11 +10,11 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, os.path.dirname(__file__))
 
 try:
-    from .analytics import compute_dashboard_metrics, export_operations_report
+    from .analytics import build_inventory_forecast, compute_dashboard_metrics, export_operations_report
     from .database import get_db, init_db
     from .services.alerts import queue_low_stock_alerts
 except ImportError:
-    from analytics import compute_dashboard_metrics, export_operations_report
+    from analytics import build_inventory_forecast, compute_dashboard_metrics, export_operations_report
     from database import get_db, init_db
     from services.alerts import queue_low_stock_alerts
 
@@ -86,6 +86,18 @@ def trigger_low_stock_slack_alerts(
     try:
         result = queue_low_stock_alerts(background_tasks, db)
         return {"success": True, "data": result}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/forecast/inventory")
+def get_inventory_forecast(
+    product_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    try:
+        forecast = build_inventory_forecast(db, product_id=product_id)
+        return {"success": True, "data": forecast}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
