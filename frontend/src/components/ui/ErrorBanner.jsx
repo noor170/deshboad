@@ -1,6 +1,6 @@
-export default function ErrorBanner({ children, tone = "warning" }) {
+export default function ErrorBanner({ children }) {
   return (
-    <div className={`forecast-error`}>
+    <div className="forecast-error">
       {children}
     </div>
   );
